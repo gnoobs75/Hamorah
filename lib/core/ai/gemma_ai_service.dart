@@ -4,7 +4,8 @@ import 'package:flutter_gemma/flutter_gemma.dart';
 
 import '../../data/conversation/models/conversation_models.dart';
 
-/// Gemma AI Service - handles on-device inference with Gemma model
+/// On-device AI Service - handles local LLM inference
+/// Uses TinyLlama 1.1B (public, no auth required)
 class GemmaAiService {
   static GemmaAiService? _instance;
   InferenceModel? _model;
@@ -12,7 +13,8 @@ class GemmaAiService {
   bool _isInitialized = false;
   bool _isModelDownloaded = false;
 
-  static const String _modelFileName = 'gemma-2-2b-it-q4.task';
+  // TinyLlama 1.1B - public model, no authentication required
+  static const String _modelFileName = 'TinyLlama-1.1B-Chat-v1.0_multi-prefill-seq_q8_ekv1280.task';
 
   GemmaAiService._();
 
@@ -21,9 +23,9 @@ class GemmaAiService {
     return _instance!;
   }
 
-  /// Model download URL - Gemma 2 2B quantized for mobile
+  /// Model download URL - TinyLlama 1.1B quantized (public, ~1.15 GB)
   static const String _modelUrl =
-      'https://huggingface.co/nicholasturk/gemma-2-2b-it-q4_k_m/resolve/main/gemma-2-2b-it-q4_k_m.task';
+      'https://huggingface.co/litert-community/TinyLlama-1.1B-Chat-v1.0/resolve/main/TinyLlama-1.1B-Chat-v1.0_multi-prefill-seq_q8_ekv1280.task';
 
   /// Check if model is downloaded
   bool get isModelDownloaded => _isModelDownloaded;
@@ -240,8 +242,8 @@ IMPORTANT RULES:
   /// Get model info
   Map<String, dynamic> getModelInfo() {
     return {
-      'name': 'Gemma 2 2B',
-      'size': '~1.2 GB',
+      'name': 'TinyLlama 1.1B',
+      'size': '~1.15 GB',
       'isDownloaded': _isModelDownloaded,
       'isLoaded': _isInitialized,
     };

@@ -220,12 +220,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
         const Divider(indent: 72),
 
-        // Gemma option
+        // Offline AI option
         RadioListTile<AiProvider>(
-          title: const Text('Gemma (Offline)'),
+          title: const Text('TinyLlama (Offline)'),
           subtitle: Text(
             gemmaService.isModelDownloaded
-                ? 'Model ready (~1.2 GB)'
+                ? 'Model ready (~1.15 GB)'
                 : 'Model not downloaded',
             style: TextStyle(
               color: gemmaService.isModelDownloaded ? Colors.green : Colors.orange,
@@ -244,12 +244,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               : null,
         ),
 
-        // Gemma download/delete button
+        // Model download/delete button
         Padding(
           padding: const EdgeInsets.only(left: 72, right: 16, bottom: 8),
           child: gemmaService.isModelDownloaded
               ? OutlinedButton.icon(
-                  onPressed: () => _confirmDeleteGemma(),
+                  onPressed: () => _confirmDeleteModel(),
                   icon: const Icon(Icons.delete_outline, color: Colors.red),
                   label: const Text('Delete Model', style: TextStyle(color: Colors.red)),
                 )
@@ -264,7 +264,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   : ElevatedButton.icon(
                       onPressed: _downloadGemma,
                       icon: const Icon(Icons.download),
-                      label: const Text('Download Gemma (~1.2 GB)'),
+                      label: const Text('Download TinyLlama (~1.15 GB)'),
                     ),
         ),
       ],
@@ -394,13 +394,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  void _confirmDeleteGemma() {
+  void _confirmDeleteModel() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Gemma Model?'),
+        title: const Text('Delete Offline Model?'),
         content: const Text(
-          'This will delete the downloaded Gemma model (~1.2 GB). '
+          'This will delete the downloaded TinyLlama model (~1.15 GB). '
           'You can re-download it later.',
         ),
         actions: [
@@ -421,7 +421,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
               setState(() {});
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Gemma model deleted')),
+                const SnackBar(content: Text('Offline model deleted')),
               );
             },
             child: const Text('Delete', style: TextStyle(color: Colors.red)),
