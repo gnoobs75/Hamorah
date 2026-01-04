@@ -175,23 +175,58 @@ class LlamaCppService {
         throw Exception('Failed to extract: ${result.stderr}');
       }
 
-      // Find and move the DLL to the expected location
+      // List all extracted files for debugging
       final extractedDir = Directory(destDir);
+      debugPrint('Extracted files in $destDir:');
+
+      // Copy ALL DLLs to the lib directory (llama.dll may depend on ggml.dll, etc.)
+      bool foundLlamaDll = false;
       await for (final entity in extractedDir.list(recursive: true)) {
-        if (entity is File && entity.path.endsWith('.dll') &&
-            p.basename(entity.path).toLowerCase().contains('llama')) {
-          final targetPath = p.join(destDir, _libraryFileName);
-          if (entity.path != targetPath) {
-            await entity.copy(targetPath);
+        if (entity is File) {
+          final fileName = p.basename(entity.path).toLowerCase();
+          debugPrint('  Found: ${entity.path}');
+
+          if (fileName.endsWith('.dll')) {
+            final targetPath = p.join(destDir, p.basename(entity.path));
+            if (entity.path != targetPath) {
+              await entity.copy(targetPath);
+              debugPrint('  Copied DLL to: $targetPath');
+            }
+
+            if (fileName == 'llama.dll' || fileName == 'libllama.dll') {
+              foundLlamaDll = true;
+              // Also copy to expected name if different
+              final expectedPath = p.join(destDir, _libraryFileName);
+              if (entity.path != expectedPath && targetPath != expectedPath) {
+                await entity.copy(expectedPath);
+                debugPrint('  Copied as: $expectedPath');
+              }
+            }
           }
-          debugPrint('Found library: ${entity.path}');
-          break;
         }
+      }
+
+      if (!foundLlamaDll) {
+        debugPrint('WARNING: llama.dll not found in extracted files!');
       }
     } else {
       final result = await Process.run('unzip', ['-o', zipPath, '-d', destDir]);
       if (result.exitCode != 0) {
         throw Exception('Failed to extract: ${result.stderr}');
+      }
+
+      // Similar logic for Unix
+      final extractedDir = Directory(destDir);
+      await for (final entity in extractedDir.list(recursive: true)) {
+        if (entity is File) {
+          final fileName = p.basename(entity.path).toLowerCase();
+          if (fileName.endsWith('.so') || fileName.endsWith('.dylib')) {
+            final targetPath = p.join(destDir, p.basename(entity.path));
+            if (entity.path != targetPath) {
+              await entity.copy(targetPath);
+            }
+          }
+        }
       }
     }
   }
