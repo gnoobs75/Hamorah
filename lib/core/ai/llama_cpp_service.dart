@@ -29,7 +29,7 @@ class LlamaCppService {
   static const int modelSizeBytes = 669000000; // ~669 MB
 
   // llama.cpp library
-  static const String _llamaCppVersion = 'b4427'; // Stable version
+  static const String _llamaCppVersion = 'b7626'; // Latest stable version
   static String get _libraryFileName {
     if (Platform.isWindows) return 'llama.dll';
     if (Platform.isMacOS) return 'libllama.dylib';
@@ -38,13 +38,13 @@ class LlamaCppService {
 
   static String get _llamaCppDownloadUrl {
     if (Platform.isWindows) {
-      return 'https://github.com/ggml-org/llama.cpp/releases/download/$_llamaCppVersion/llama-$_llamaCppVersion-bin-win-avx2-x64.zip';
+      return 'https://github.com/ggml-org/llama.cpp/releases/download/$_llamaCppVersion/llama-$_llamaCppVersion-bin-win-cpu-x64.zip';
     }
     if (Platform.isMacOS) {
       return 'https://github.com/ggml-org/llama.cpp/releases/download/$_llamaCppVersion/llama-$_llamaCppVersion-bin-macos-arm64.zip';
     }
     // Linux
-    return 'https://github.com/ggml-org/llama.cpp/releases/download/$_llamaCppVersion/llama-$_llamaCppVersion-bin-ubuntu-x64.zip';
+    return 'https://github.com/ggml-org/llama.cpp/releases/download/$_llamaCppVersion/llama-$_llamaCppVersion-bin-linux-x64.zip';
   }
 
   LlamaCppService._();
