@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
@@ -280,7 +279,7 @@ class LlamaCppService {
       debugPrint('Loading model from: $modelPath');
 
       Llama.libraryPath = libPath;
-      _llama = Llama(modelPath, ModelParams());
+      _llama = Llama(modelPath);
 
       _isInitialized = true;
       debugPrint('LlamaCpp model loaded successfully');
