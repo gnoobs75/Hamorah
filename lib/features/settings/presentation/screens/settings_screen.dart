@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -224,49 +226,88 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         RadioListTile<AiProvider>(
           title: const Text('TinyLlama (Offline)'),
           subtitle: Text(
-            gemmaService.isModelDownloaded
-                ? 'Model ready (~1.15 GB)'
-                : 'Model not downloaded',
+            !isOfflineAiSupported
+                ? 'Only available on Android/iOS'
+                : gemmaService.isModelDownloaded
+                    ? 'Model ready (~1.15 GB)'
+                    : 'Model not downloaded',
             style: TextStyle(
-              color: gemmaService.isModelDownloaded ? Colors.green : Colors.orange,
+              color: !isOfflineAiSupported
+                  ? Colors.grey
+                  : gemmaService.isModelDownloaded
+                      ? Colors.green
+                      : Colors.orange,
             ),
           ),
-          secondary: const Icon(Icons.offline_bolt_outlined),
+          secondary: Icon(
+            Icons.offline_bolt_outlined,
+            color: !isOfflineAiSupported ? Colors.grey : null,
+          ),
           value: AiProvider.gemma,
           groupValue: currentProvider,
-          onChanged: gemmaService.isModelDownloaded
-              ? (value) async {
-                  if (value != null) {
-                    await AiProviderManager.instance.setProvider(value);
-                    ref.read(aiProviderProvider.notifier).state = value;
-                  }
-                }
-              : null,
+          onChanged: !isOfflineAiSupported
+              ? null
+              : gemmaService.isModelDownloaded
+                  ? (value) async {
+                      if (value != null) {
+                        await AiProviderManager.instance.setProvider(value);
+                        ref.read(aiProviderProvider.notifier).state = value;
+                      }
+                    }
+                  : null,
         ),
 
-        // Model download/delete button
-        Padding(
-          padding: const EdgeInsets.only(left: 72, right: 16, bottom: 8),
-          child: gemmaService.isModelDownloaded
-              ? OutlinedButton.icon(
-                  onPressed: () => _confirmDeleteModel(),
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
-                  label: const Text('Delete Model', style: TextStyle(color: Colors.red)),
-                )
-              : _isDownloadingGemma
-                  ? Column(
-                      children: [
-                        LinearProgressIndicator(value: _gemmaProgress),
-                        const SizedBox(height: 8),
-                        Text('Downloading: ${(_gemmaProgress * 100).toInt()}%'),
-                      ],
-                    )
-                  : ElevatedButton.icon(
-                      onPressed: _downloadGemma,
-                      icon: const Icon(Icons.download),
-                      label: const Text('Download TinyLlama (~1.15 GB)'),
+        // Platform info or Model download/delete button
+        if (!isOfflineAiSupported)
+          Padding(
+            padding: const EdgeInsets.only(left: 72, right: 16, bottom: 8),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Offline AI requires Android or iOS. '
+                      'Use Grok (cloud) on ${Platform.operatingSystem}.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.blue.shade700,
+                      ),
                     ),
-        ),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.only(left: 72, right: 16, bottom: 8),
+            child: gemmaService.isModelDownloaded
+                ? OutlinedButton.icon(
+                    onPressed: () => _confirmDeleteModel(),
+                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    label: const Text('Delete Model', style: TextStyle(color: Colors.red)),
+                  )
+                : _isDownloadingGemma
+                    ? Column(
+                        children: [
+                          LinearProgressIndicator(value: _gemmaProgress),
+                          const SizedBox(height: 8),
+                          Text('Downloading: ${(_gemmaProgress * 100).toInt()}%'),
+                        ],
+                      )
+                    : ElevatedButton.icon(
+                        onPressed: _downloadGemma,
+                        icon: const Icon(Icons.download),
+                        label: const Text('Download TinyLlama (~1.15 GB)'),
+                      ),
+          ),
       ],
     );
   }

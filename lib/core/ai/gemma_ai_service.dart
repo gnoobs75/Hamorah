@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_gemma/flutter_gemma.dart';
 
 import '../../data/conversation/models/conversation_models.dart';
 import 'model_download_service.dart';
+
+/// Check if running on a supported platform for on-device AI
+bool get isOfflineAiSupported => Platform.isAndroid || Platform.isIOS;
 
 /// On-device AI Service - handles local LLM inference
 /// Uses TinyLlama 1.1B (public, no auth required)
@@ -29,6 +33,14 @@ class GemmaAiService {
 
   /// Initialize the Gemma service
   Future<void> initialize() async {
+    // Check platform support
+    if (!isOfflineAiSupported) {
+      debugPrint('Offline AI not supported on this platform (Windows/macOS/Linux)');
+      debugPrint('Use Grok cloud AI instead, or build for Android/iOS for offline mode');
+      _isModelDownloaded = false;
+      return;
+    }
+
     try {
       // Initialize FlutterGemma
       await FlutterGemma.initialize();
@@ -67,6 +79,13 @@ class GemmaAiService {
   /// Download the model using our custom service
   /// Returns a stream of download progress (0.0 to 1.0)
   Stream<double> downloadModel() async* {
+    if (!isOfflineAiSupported) {
+      throw UnsupportedError(
+        'Offline AI is only available on Android and iOS. '
+        'Please use Grok (cloud) mode on Windows/macOS/Linux.',
+      );
+    }
+
     try {
       debugPrint('Starting TinyLlama model download...');
 
