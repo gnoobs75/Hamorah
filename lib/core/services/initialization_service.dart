@@ -13,6 +13,7 @@ import '../../data/user/user_data_repository.dart';
 import '../../data/conversation/conversation_repository.dart';
 import '../ai/ai_provider_manager.dart';
 import '../ai/gemma_ai_service.dart';
+import '../ai/llama_cpp_service.dart';
 
 /// App initialization state
 enum InitState {
@@ -97,8 +98,16 @@ class InitializationNotifier extends StateNotifier<InitStatus> {
       // Initialize AI provider manager
       await AiProviderManager.instance.initialize();
 
-      // Check Gemma model status
-      await GemmaAiService.instance.initialize();
+      // Initialize platform-appropriate AI service
+      if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+        // Desktop: use llama.cpp
+        await LlamaCppService.instance.initialize();
+        debugPrint('LlamaCpp service initialized for desktop');
+      } else {
+        // Mobile: use Gemma
+        await GemmaAiService.instance.initialize();
+        debugPrint('Gemma service initialized for mobile');
+      }
 
       state = state.copyWith(
         message: 'Checking Bible database...',

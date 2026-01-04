@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/ai/hamorah_ai_service.dart';
-import '../../../../core/ai/gemma_ai_service.dart';
 import '../../../../core/ai/ai_provider_manager.dart';
 import '../../../../data/user/user_data_repository.dart';
 import '../../../../data/conversation/conversation_repository.dart';
@@ -180,7 +179,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Widget _buildAiProviderSection(AiProvider currentProvider, AsyncValue<bool> hasApiKey) {
-    final gemmaService = GemmaAiService.instance;
+    final manager = AiProviderManager.instance;
+    final modelInfo = manager.getOfflineModelInfo();
+    final isModelReady = manager.isOfflineModelReady();
+    final modelName = modelInfo['name'] ?? 'TinyLlama';
+    final modelSize = modelInfo['size'] ?? '~669 MB';
 
     return Column(
       children: [
@@ -202,7 +205,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           groupValue: currentProvider,
           onChanged: (value) async {
             if (value != null) {
-              await AiProviderManager.instance.setProvider(value);
+              await manager.setProvider(value);
               ref.read(aiProviderProvider.notifier).state = value;
             }
           },
@@ -224,90 +227,51 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
         // Offline AI option
         RadioListTile<AiProvider>(
-          title: const Text('TinyLlama (Offline)'),
+          title: Text('$modelName (Offline)'),
           subtitle: Text(
-            !isOfflineAiSupported
-                ? 'Only available on Android/iOS'
-                : gemmaService.isModelDownloaded
-                    ? 'Model ready (~1.15 GB)'
-                    : 'Model not downloaded',
+            isModelReady
+                ? 'Model ready ($modelSize)'
+                : 'Model not downloaded',
             style: TextStyle(
-              color: !isOfflineAiSupported
-                  ? Colors.grey
-                  : gemmaService.isModelDownloaded
-                      ? Colors.green
-                      : Colors.orange,
+              color: isModelReady ? Colors.green : Colors.orange,
             ),
           ),
-          secondary: Icon(
-            Icons.offline_bolt_outlined,
-            color: !isOfflineAiSupported ? Colors.grey : null,
-          ),
+          secondary: const Icon(Icons.offline_bolt_outlined),
           value: AiProvider.gemma,
           groupValue: currentProvider,
-          onChanged: !isOfflineAiSupported
-              ? null
-              : gemmaService.isModelDownloaded
-                  ? (value) async {
-                      if (value != null) {
-                        await AiProviderManager.instance.setProvider(value);
-                        ref.read(aiProviderProvider.notifier).state = value;
-                      }
-                    }
-                  : null,
+          onChanged: isModelReady
+              ? (value) async {
+                  if (value != null) {
+                    await manager.setProvider(value);
+                    ref.read(aiProviderProvider.notifier).state = value;
+                  }
+                }
+              : null,
         ),
 
-        // Platform info or Model download/delete button
-        if (!isOfflineAiSupported)
-          Padding(
-            padding: const EdgeInsets.only(left: 72, right: 16, bottom: 8),
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Offline AI requires Android or iOS. '
-                      'Use Grok (cloud) on ${Platform.operatingSystem}.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.blue.shade700,
-                      ),
+        // Model download/delete button
+        Padding(
+          padding: const EdgeInsets.only(left: 72, right: 16, bottom: 8),
+          child: isModelReady
+              ? OutlinedButton.icon(
+                  onPressed: () => _confirmDeleteModel(),
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  label: const Text('Delete Model', style: TextStyle(color: Colors.red)),
+                )
+              : _isDownloadingGemma
+                  ? Column(
+                      children: [
+                        LinearProgressIndicator(value: _gemmaProgress),
+                        const SizedBox(height: 8),
+                        Text('Downloading: ${(_gemmaProgress * 100).toInt()}%'),
+                      ],
+                    )
+                  : ElevatedButton.icon(
+                      onPressed: _downloadOfflineModel,
+                      icon: const Icon(Icons.download),
+                      label: Text('Download $modelName ($modelSize)'),
                     ),
-                  ),
-                ],
-              ),
-            ),
-          )
-        else
-          Padding(
-            padding: const EdgeInsets.only(left: 72, right: 16, bottom: 8),
-            child: gemmaService.isModelDownloaded
-                ? OutlinedButton.icon(
-                    onPressed: () => _confirmDeleteModel(),
-                    icon: const Icon(Icons.delete_outline, color: Colors.red),
-                    label: const Text('Delete Model', style: TextStyle(color: Colors.red)),
-                  )
-                : _isDownloadingGemma
-                    ? Column(
-                        children: [
-                          LinearProgressIndicator(value: _gemmaProgress),
-                          const SizedBox(height: 8),
-                          Text('Downloading: ${(_gemmaProgress * 100).toInt()}%'),
-                        ],
-                      )
-                    : ElevatedButton.icon(
-                        onPressed: _downloadGemma,
-                        icon: const Icon(Icons.download),
-                        label: const Text('Download TinyLlama (~1.15 GB)'),
-                      ),
-          ),
+        ),
       ],
     );
   }
@@ -399,22 +363,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  Future<void> _downloadGemma() async {
+  Future<void> _downloadOfflineModel() async {
     setState(() {
       _isDownloadingGemma = true;
       _gemmaProgress = 0;
     });
 
     try {
-      await for (final progress in GemmaAiService.instance.downloadModel()) {
-        setState(() {
-          _gemmaProgress = progress;
-        });
+      await for (final progress in AiProviderManager.instance.downloadOfflineModel()) {
+        if (mounted) {
+          setState(() {
+            _gemmaProgress = progress;
+          });
+        }
       }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('TinyLlama model downloaded successfully')),
+          const SnackBar(content: Text('AI model downloaded successfully')),
         );
         setState(() {}); // Refresh UI
       }
@@ -428,20 +394,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         );
       }
     } finally {
-      setState(() {
-        _isDownloadingGemma = false;
-        _gemmaProgress = 0;
-      });
+      if (mounted) {
+        setState(() {
+          _isDownloadingGemma = false;
+          _gemmaProgress = 0;
+        });
+      }
     }
   }
 
   void _confirmDeleteModel() {
+    final modelInfo = AiProviderManager.instance.getOfflineModelInfo();
+    final modelName = modelInfo['name'] ?? 'AI model';
+    final modelSize = modelInfo['size'] ?? '';
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Offline Model?'),
-        content: const Text(
-          'This will delete the downloaded TinyLlama model (~1.15 GB). '
+        content: Text(
+          'This will delete the downloaded $modelName ($modelSize). '
           'You can re-download it later.',
         ),
         actions: [
@@ -452,18 +424,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
-              await GemmaAiService.instance.deleteModel();
+              await AiProviderManager.instance.deleteOfflineModel();
 
-              // Switch to Grok if currently using Gemma
+              // Switch to Grok if currently using offline mode
               if (AiProviderManager.instance.currentProvider == AiProvider.gemma) {
                 await AiProviderManager.instance.setProvider(AiProvider.grok);
                 ref.read(aiProviderProvider.notifier).state = AiProvider.grok;
               }
 
               setState(() {});
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Offline model deleted')),
-              );
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Offline model deleted')),
+                );
+              }
             },
             child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),

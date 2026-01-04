@@ -41,8 +41,9 @@ dependencies:
   http: ^1.2.2
   dio: ^5.4.0
 
-  # On-device AI (Gemma)
+  # On-device AI (Gemma for mobile, llama.cpp for desktop)
   flutter_gemma: ^0.11.16
+  llama_cpp_dart: ^0.2.2
 
 dev_dependencies:
   flutter_test:

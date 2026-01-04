@@ -16,7 +16,8 @@
       "Bash(git push:*)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:pub.dev)",
-      "Bash(flutter pub get:*)"
+      "Bash(flutter pub get:*)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }
