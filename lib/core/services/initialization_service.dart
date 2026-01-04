@@ -7,9 +7,12 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
 import '../../data/bible/bible_database.dart';
+import '../../data/bible/bible_download_service.dart';
 import '../../data/bible/kjv_importer.dart';
 import '../../data/user/user_data_repository.dart';
 import '../../data/conversation/conversation_repository.dart';
+import '../ai/ai_provider_manager.dart';
+import '../ai/gemma_ai_service.dart';
 
 /// App initialization state
 enum InitState {
@@ -87,8 +90,19 @@ class InitializationNotifier extends StateNotifier<InitStatus> {
       await ConversationRepository.instance.initialize();
 
       state = state.copyWith(
-        message: 'Checking Bible database...',
+        message: 'Initializing AI services...',
         progress: 0.3,
+      );
+
+      // Initialize AI provider manager
+      await AiProviderManager.instance.initialize();
+
+      // Check Gemma model status
+      await GemmaAiService.instance.initialize();
+
+      state = state.copyWith(
+        message: 'Checking Bible database...',
+        progress: 0.4,
       );
 
       // Check if Bible data exists
@@ -129,36 +143,35 @@ class InitializationNotifier extends StateNotifier<InitStatus> {
   Future<void> importBible() async {
     state = state.copyWith(
       state: InitState.importing,
-      message: 'Preparing to import...',
+      message: 'Downloading KJV Bible...',
       progress: 0.0,
     );
 
     try {
-      final database = BibleDatabase.instance;
-      final importer = KjvImporter(database);
-
-      final success = await importer.importFromNetwork(
-        onProgress: (progress, message) {
+      await BibleDownloadService.instance.downloadKJV(
+        onProgress: (current, total, message) {
           state = state.copyWith(
-            progress: progress,
+            progress: current / total,
             message: message,
           );
         },
       );
 
-      if (success) {
-        state = state.copyWith(
-          state: InitState.ready,
-          message: 'Ready!',
-          progress: 1.0,
-        );
-      } else {
-        // Fall back to sample data for testing
-        state = state.copyWith(
-          message: 'Using sample data...',
-          progress: 0.8,
-        );
+      state = state.copyWith(
+        state: InitState.ready,
+        message: 'Ready!',
+        progress: 1.0,
+      );
+    } catch (e) {
+      debugPrint('KJV download failed: $e');
+      // Fall back to sample data for testing
+      state = state.copyWith(
+        message: 'Download failed, using sample data...',
+        progress: 0.8,
+      );
 
+      try {
+        final database = BibleDatabase.instance;
         await KjvSampleData.loadIntoDatabase(database);
 
         state = state.copyWith(
@@ -166,13 +179,13 @@ class InitializationNotifier extends StateNotifier<InitStatus> {
           message: 'Ready with sample data',
           progress: 1.0,
         );
+      } catch (e2) {
+        state = state.copyWith(
+          state: InitState.error,
+          error: e2.toString(),
+          message: 'Import failed',
+        );
       }
-    } catch (e) {
-      state = state.copyWith(
-        state: InitState.error,
-        error: e.toString(),
-        message: 'Import failed',
-      );
     }
   }
 

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/services.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -8,6 +7,7 @@ import 'dart:io';
 import 'models/bible_models.dart';
 
 /// Database service for Bible storage and retrieval
+/// Supports multiple translations
 class BibleDatabase {
   static BibleDatabase? _instance;
   static Database? _database;
@@ -26,10 +26,7 @@ class BibleDatabase {
   }
 
   Future<Database> _initDatabase() async {
-    // Use application support directory (more reliable on desktop)
     final appDir = await getApplicationSupportDirectory();
-
-    // Create Hamorah subdirectory
     final hamorahDir = Directory(join(appDir.path, 'data'));
     if (!await hamorahDir.exists()) {
       await hamorahDir.create(recursive: true);
@@ -37,36 +34,53 @@ class BibleDatabase {
 
     final path = join(hamorahDir.path, 'bible.db');
 
-    // Open or create database
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
   Future<void> _onCreate(Database db, int version) async {
-    // Create verses table
+    // Translations table
+    await db.execute('''
+      CREATE TABLE translations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        abbreviation TEXT NOT NULL,
+        language TEXT NOT NULL DEFAULT 'en',
+        is_downloaded INTEGER NOT NULL DEFAULT 0,
+        verse_count INTEGER NOT NULL DEFAULT 0,
+        license_type TEXT NOT NULL DEFAULT 'public_domain'
+      )
+    ''');
+
+    // Verses table with translation support
     await db.execute('''
       CREATE TABLE verses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        translation_id TEXT NOT NULL DEFAULT 'KJV',
         book_id INTEGER NOT NULL,
         chapter INTEGER NOT NULL,
         verse INTEGER NOT NULL,
         text TEXT NOT NULL,
-        UNIQUE(book_id, chapter, verse)
+        UNIQUE(translation_id, book_id, chapter, verse),
+        FOREIGN KEY (translation_id) REFERENCES translations(id)
       )
     ''');
 
-    // Create index for fast lookups
+    // Indexes
     await db.execute('''
-      CREATE INDEX idx_verses_book_chapter ON verses(book_id, chapter)
+      CREATE INDEX idx_verses_translation_book_chapter
+      ON verses(translation_id, book_id, chapter)
     ''');
 
-    // Create full-text search table
+    // Full-text search table
     await db.execute('''
       CREATE VIRTUAL TABLE verses_fts USING fts5(
         text,
+        translation_id,
         content='verses',
         content_rowid='id'
       )
@@ -75,32 +89,186 @@ class BibleDatabase {
     // Trigger to keep FTS in sync
     await db.execute('''
       CREATE TRIGGER verses_ai AFTER INSERT ON verses BEGIN
-        INSERT INTO verses_fts(rowid, text) VALUES (new.id, new.text);
+        INSERT INTO verses_fts(rowid, text, translation_id)
+        VALUES (new.id, new.text, new.translation_id);
       END
     ''');
+
+    await db.execute('''
+      CREATE TRIGGER verses_ad AFTER DELETE ON verses BEGIN
+        INSERT INTO verses_fts(verses_fts, rowid, text, translation_id)
+        VALUES('delete', old.id, old.text, old.translation_id);
+      END
+    ''');
+
+    // Insert available translations
+    await db.insert('translations', {
+      'id': 'KJV',
+      'name': 'King James Version',
+      'abbreviation': 'KJV',
+      'language': 'en',
+      'is_downloaded': 0,
+      'verse_count': 0,
+      'license_type': 'public_domain',
+    });
+
+    await db.insert('translations', {
+      'id': 'ASV',
+      'name': 'American Standard Version',
+      'abbreviation': 'ASV',
+      'language': 'en',
+      'is_downloaded': 0,
+      'verse_count': 0,
+      'license_type': 'public_domain',
+    });
+
+    await db.insert('translations', {
+      'id': 'WEB',
+      'name': 'World English Bible',
+      'abbreviation': 'WEB',
+      'language': 'en',
+      'is_downloaded': 0,
+      'verse_count': 0,
+      'license_type': 'public_domain',
+    });
   }
 
-  /// Check if Bible data is loaded
-  Future<bool> hasData() async {
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // Migrate from version 1 to version 2
+      // Add translations table
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS translations (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          abbreviation TEXT NOT NULL,
+          language TEXT NOT NULL DEFAULT 'en',
+          is_downloaded INTEGER NOT NULL DEFAULT 0,
+          verse_count INTEGER NOT NULL DEFAULT 0,
+          license_type TEXT NOT NULL DEFAULT 'public_domain'
+        )
+      ''');
+
+      // Add translation_id column to verses if not exists
+      try {
+        await db.execute('ALTER TABLE verses ADD COLUMN translation_id TEXT NOT NULL DEFAULT "KJV"');
+      } catch (e) {
+        // Column might already exist
+      }
+
+      // Insert translations
+      await db.insert('translations', {
+        'id': 'KJV',
+        'name': 'King James Version',
+        'abbreviation': 'KJV',
+        'language': 'en',
+        'is_downloaded': 1,
+        'verse_count': 0,
+        'license_type': 'public_domain',
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+      await db.insert('translations', {
+        'id': 'ASV',
+        'name': 'American Standard Version',
+        'abbreviation': 'ASV',
+        'language': 'en',
+        'is_downloaded': 0,
+        'verse_count': 0,
+        'license_type': 'public_domain',
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+      await db.insert('translations', {
+        'id': 'WEB',
+        'name': 'World English Bible',
+        'abbreviation': 'WEB',
+        'language': 'en',
+        'is_downloaded': 0,
+        'verse_count': 0,
+        'license_type': 'public_domain',
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+      // Update existing verse count
+      final count = Sqflite.firstIntValue(
+        await db.rawQuery('SELECT COUNT(*) FROM verses WHERE translation_id = "KJV"')
+      ) ?? 0;
+      if (count > 0) {
+        await db.update('translations', {'is_downloaded': 1, 'verse_count': count},
+            where: 'id = ?', whereArgs: ['KJV']);
+      }
+    }
+  }
+
+  /// Get all available translations
+  Future<List<BibleTranslation>> getTranslations() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM verses');
+    final results = await db.query('translations', orderBy: 'name');
+    return results.map((map) => BibleTranslation(
+      id: map['id'] as String,
+      name: map['name'] as String,
+      abbreviation: map['abbreviation'] as String,
+      language: map['language'] as String,
+      isDownloaded: (map['is_downloaded'] as int) == 1,
+      verseCount: map['verse_count'] as int,
+      licenseType: map['license_type'] as String,
+    )).toList();
+  }
+
+  /// Get a specific translation
+  Future<BibleTranslation?> getTranslation(String id) async {
+    final db = await database;
+    final results = await db.query('translations', where: 'id = ?', whereArgs: [id]);
+    if (results.isEmpty) return null;
+    final map = results.first;
+    return BibleTranslation(
+      id: map['id'] as String,
+      name: map['name'] as String,
+      abbreviation: map['abbreviation'] as String,
+      language: map['language'] as String,
+      isDownloaded: (map['is_downloaded'] as int) == 1,
+      verseCount: map['verse_count'] as int,
+      licenseType: map['license_type'] as String,
+    );
+  }
+
+  /// Update translation download status
+  Future<void> updateTranslationStatus(String id, bool isDownloaded, int verseCount) async {
+    final db = await database;
+    await db.update(
+      'translations',
+      {'is_downloaded': isDownloaded ? 1 : 0, 'verse_count': verseCount},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Check if translation has data
+  Future<bool> hasData({String translationId = 'KJV'}) async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM verses WHERE translation_id = ?',
+      [translationId],
+    );
     final count = Sqflite.firstIntValue(result) ?? 0;
     return count > 0;
   }
 
-  /// Get verse count
-  Future<int> getVerseCount() async {
+  /// Get verse count for a translation
+  Future<int> getVerseCount({String translationId = 'KJV'}) async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM verses');
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM verses WHERE translation_id = ?',
+      [translationId],
+    );
     return Sqflite.firstIntValue(result) ?? 0;
   }
 
   /// Insert a verse
-  Future<void> insertVerse(BibleVerse verse) async {
+  Future<void> insertVerse(BibleVerse verse, {String translationId = 'KJV'}) async {
     final db = await database;
     await db.insert(
       'verses',
       {
+        'translation_id': translationId,
         'book_id': verse.bookId,
         'chapter': verse.chapter,
         'verse': verse.verse,
@@ -111,7 +279,7 @@ class BibleDatabase {
   }
 
   /// Insert multiple verses in a batch
-  Future<void> insertVerses(List<BibleVerse> verses) async {
+  Future<void> insertVerses(List<BibleVerse> verses, {String translationId = 'KJV'}) async {
     final db = await database;
     final batch = db.batch();
 
@@ -119,6 +287,7 @@ class BibleDatabase {
       batch.insert(
         'verses',
         {
+          'translation_id': translationId,
           'book_id': verse.bookId,
           'chapter': verse.chapter,
           'verse': verse.verse,
@@ -132,12 +301,12 @@ class BibleDatabase {
   }
 
   /// Get all verses for a chapter
-  Future<List<BibleVerse>> getChapter(int bookId, int chapter) async {
+  Future<List<BibleVerse>> getChapter(int bookId, int chapter, {String translationId = 'KJV'}) async {
     final db = await database;
     final results = await db.query(
       'verses',
-      where: 'book_id = ? AND chapter = ?',
-      whereArgs: [bookId, chapter],
+      where: 'translation_id = ? AND book_id = ? AND chapter = ?',
+      whereArgs: [translationId, bookId, chapter],
       orderBy: 'verse ASC',
     );
 
@@ -153,12 +322,12 @@ class BibleDatabase {
   }
 
   /// Get a specific verse
-  Future<BibleVerse?> getVerse(int bookId, int chapter, int verse) async {
+  Future<BibleVerse?> getVerse(int bookId, int chapter, int verse, {String translationId = 'KJV'}) async {
     final db = await database;
     final results = await db.query(
       'verses',
-      where: 'book_id = ? AND chapter = ? AND verse = ?',
-      whereArgs: [bookId, chapter, verse],
+      where: 'translation_id = ? AND book_id = ? AND chapter = ? AND verse = ?',
+      whereArgs: [translationId, bookId, chapter, verse],
       limit: 1,
     );
 
@@ -181,13 +350,14 @@ class BibleDatabase {
     int bookId,
     int chapter,
     int startVerse,
-    int endVerse,
-  ) async {
+    int endVerse, {
+    String translationId = 'KJV',
+  }) async {
     final db = await database;
     final results = await db.query(
       'verses',
-      where: 'book_id = ? AND chapter = ? AND verse >= ? AND verse <= ?',
-      whereArgs: [bookId, chapter, startVerse, endVerse],
+      where: 'translation_id = ? AND book_id = ? AND chapter = ? AND verse >= ? AND verse <= ?',
+      whereArgs: [translationId, bookId, chapter, startVerse, endVerse],
       orderBy: 'verse ASC',
     );
 
@@ -205,6 +375,7 @@ class BibleDatabase {
   /// Search verses using full-text search
   Future<List<VerseSearchResult>> searchVerses(
     String query, {
+    String translationId = 'KJV',
     int? bookId,
     int limit = 50,
   }) async {
@@ -218,21 +389,21 @@ class BibleDatabase {
         SELECT v.id, v.book_id, v.chapter, v.verse, v.text
         FROM verses v
         JOIN verses_fts fts ON v.id = fts.rowid
-        WHERE verses_fts MATCH ? AND v.book_id = ?
+        WHERE verses_fts MATCH ? AND v.book_id = ? AND v.translation_id = ?
         ORDER BY rank
         LIMIT ?
       ''';
-      args = ['"$query"', bookId, limit];
+      args = ['"$query"', bookId, translationId, limit];
     } else {
       sql = '''
         SELECT v.id, v.book_id, v.chapter, v.verse, v.text
         FROM verses v
         JOIN verses_fts fts ON v.id = fts.rowid
-        WHERE verses_fts MATCH ?
+        WHERE verses_fts MATCH ? AND v.translation_id = ?
         ORDER BY rank
         LIMIT ?
       ''';
-      args = ['"$query"', limit];
+      args = ['"$query"', translationId, limit];
     }
 
     final results = await db.rawQuery(sql, args);
@@ -257,13 +428,14 @@ class BibleDatabase {
   /// Simple LIKE search (fallback if FTS fails)
   Future<List<VerseSearchResult>> searchVersesSimple(
     String query, {
+    String translationId = 'KJV',
     int? bookId,
     int limit = 50,
   }) async {
     final db = await database;
 
-    String whereClause = 'text LIKE ?';
-    List<dynamic> args = ['%$query%'];
+    String whereClause = 'translation_id = ? AND text LIKE ?';
+    List<dynamic> args = [translationId, '%$query%'];
 
     if (bookId != null) {
       whereClause += ' AND book_id = ?';
@@ -295,20 +467,28 @@ class BibleDatabase {
   }
 
   /// Get chapter count for a book
-  Future<int> getChapterCount(int bookId) async {
+  Future<int> getChapterCount(int bookId, {String translationId = 'KJV'}) async {
     final db = await database;
     final result = await db.rawQuery(
-      'SELECT MAX(chapter) as max_chapter FROM verses WHERE book_id = ?',
-      [bookId],
+      'SELECT MAX(chapter) as max_chapter FROM verses WHERE translation_id = ? AND book_id = ?',
+      [translationId, bookId],
     );
     return Sqflite.firstIntValue(result) ?? 0;
   }
 
-  /// Clear all data (for reimporting)
+  /// Clear all data for a translation
+  Future<void> clearTranslation(String translationId) async {
+    final db = await database;
+    await db.delete('verses', where: 'translation_id = ?', whereArgs: [translationId]);
+    await updateTranslationStatus(translationId, false, 0);
+  }
+
+  /// Clear all data
   Future<void> clearAll() async {
     final db = await database;
     await db.delete('verses');
     await db.execute('DELETE FROM verses_fts');
+    await db.update('translations', {'is_downloaded': 0, 'verse_count': 0});
   }
 
   /// Close database

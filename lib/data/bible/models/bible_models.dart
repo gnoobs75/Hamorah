@@ -1,5 +1,28 @@
 /// Bible data models for Hamorah
 
+/// Represents a Bible translation
+class BibleTranslation {
+  final String id;           // 'KJV', 'ASV', 'WEB', etc.
+  final String name;         // 'King James Version'
+  final String abbreviation; // 'KJV'
+  final String language;     // 'en'
+  final bool isDownloaded;
+  final int verseCount;
+  final String licenseType;  // 'public_domain', 'commercial'
+
+  const BibleTranslation({
+    required this.id,
+    required this.name,
+    required this.abbreviation,
+    required this.language,
+    required this.isDownloaded,
+    required this.verseCount,
+    required this.licenseType,
+  });
+
+  bool get isPublicDomain => licenseType == 'public_domain';
+}
+
 /// Represents a book of the Bible
 class BibleBook {
   final int id;           // 1-66

@@ -4,15 +4,30 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/ai/hamorah_ai_service.dart';
+import '../../../../core/ai/gemma_ai_service.dart';
+import '../../../../core/ai/ai_provider_manager.dart';
 import '../../../../data/user/user_data_repository.dart';
 import '../../../../data/conversation/conversation_repository.dart';
+import '../../../../data/bible/bible_database.dart';
+import '../../../../data/bible/bible_download_service.dart';
+import '../../../../data/bible/models/bible_models.dart';
 
 /// Provider for API key status
 final apiKeyStatusProvider = FutureProvider<bool>((ref) async {
   return await HamorahAiService.instance.hasApiKey();
 });
 
-/// Settings screen - privacy, appearance, translations
+/// Provider for translations
+final translationsProvider = FutureProvider<List<BibleTranslation>>((ref) async {
+  return await BibleDatabase.instance.getTranslations();
+});
+
+/// Provider for current AI provider
+final aiProviderProvider = StateProvider<AiProvider>((ref) {
+  return AiProviderManager.instance.currentProvider;
+});
+
+/// Settings screen - privacy, appearance, translations, AI
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
@@ -22,11 +37,16 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _darkMode = false;
-  String _defaultTranslation = 'KJV';
+  String? _downloadingTranslation;
+  double _downloadProgress = 0;
+  bool _isDownloadingGemma = false;
+  double _gemmaProgress = 0;
 
   @override
   Widget build(BuildContext context) {
     final hasApiKey = ref.watch(apiKeyStatusProvider);
+    final translations = ref.watch(translationsProvider);
+    final currentProvider = ref.watch(aiProviderProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -38,40 +58,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
       body: ListView(
         children: [
-          // AI section
-          _SectionHeader('AI & API', Icons.psychology_outlined),
-          hasApiKey.when(
-            data: (hasKey) => _SettingsTile(
-              icon: Icons.key,
-              title: 'Grok API Key',
-              subtitle: hasKey ? 'Configured' : 'Not configured',
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (hasKey)
-                    Icon(Icons.check_circle, color: Colors.green, size: 20),
-                  const SizedBox(width: 8),
-                  const Icon(Icons.chevron_right),
-                ],
-              ),
-              onTap: () => _showApiKeyDialog(hasKey),
+          // AI Provider section
+          _SectionHeader('AI Provider', Icons.psychology_outlined),
+          _buildAiProviderSection(currentProvider, hasApiKey),
+
+          const Divider(height: 32),
+
+          // Bible Translations section
+          _SectionHeader('Bible Translations', Icons.menu_book_outlined),
+          translations.when(
+            data: (trans) => _buildTranslationsSection(trans),
+            loading: () => const Padding(
+              padding: EdgeInsets.all(16),
+              child: Center(child: CircularProgressIndicator()),
             ),
-            loading: () => _SettingsTile(
-              icon: Icons.key,
-              title: 'Grok API Key',
-              subtitle: 'Checking...',
-              trailing: const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-            error: (_, __) => _SettingsTile(
-              icon: Icons.key,
-              title: 'Grok API Key',
-              subtitle: 'Error checking status',
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => _showApiKeyDialog(false),
+            error: (e, _) => Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text('Error loading translations: $e'),
             ),
           ),
 
@@ -116,32 +119,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               activeColor: AppColors.primaryLight,
             ),
           ),
-          _SettingsTile(
-            icon: Icons.text_fields,
-            title: 'Text Size',
-            subtitle: 'Adjust Scripture text size',
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _showTextSizeDialog,
-          ),
-
-          const Divider(height: 32),
-
-          // Bible section
-          _SectionHeader('Bible', Icons.menu_book_outlined),
-          _SettingsTile(
-            icon: Icons.translate,
-            title: 'Default Translation',
-            subtitle: _defaultTranslation,
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _showTranslationPicker,
-          ),
-          _SettingsTile(
-            icon: Icons.download_outlined,
-            title: 'Manage Translations',
-            subtitle: 'Download or remove translations',
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _showTranslationManager,
-          ),
 
           const Divider(height: 32),
 
@@ -185,7 +162,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Your API key is stored securely on your device. We never see or store your conversations on any server.',
+                    'All your data is stored locally on your device. With Gemma offline mode, even your AI conversations stay completely private.',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
@@ -195,6 +172,289 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
 
           const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAiProviderSection(AiProvider currentProvider, AsyncValue<bool> hasApiKey) {
+    final gemmaService = GemmaAiService.instance;
+
+    return Column(
+      children: [
+        // Grok option
+        RadioListTile<AiProvider>(
+          title: const Text('Grok (Cloud)'),
+          subtitle: hasApiKey.when(
+            data: (has) => Text(
+              has ? 'API key configured' : 'Requires API key',
+              style: TextStyle(
+                color: has ? Colors.green : Colors.orange,
+              ),
+            ),
+            loading: () => const Text('Checking...'),
+            error: (_, __) => const Text('Error'),
+          ),
+          secondary: const Icon(Icons.cloud_outlined),
+          value: AiProvider.grok,
+          groupValue: currentProvider,
+          onChanged: (value) async {
+            if (value != null) {
+              await AiProviderManager.instance.setProvider(value);
+              ref.read(aiProviderProvider.notifier).state = value;
+            }
+          },
+        ),
+        hasApiKey.when(
+          data: (has) => Padding(
+            padding: const EdgeInsets.only(left: 72, right: 16, bottom: 8),
+            child: OutlinedButton.icon(
+              onPressed: () => _showApiKeyDialog(has),
+              icon: Icon(has ? Icons.edit : Icons.add),
+              label: Text(has ? 'Update API Key' : 'Add API Key'),
+            ),
+          ),
+          loading: () => const SizedBox.shrink(),
+          error: (_, __) => const SizedBox.shrink(),
+        ),
+
+        const Divider(indent: 72),
+
+        // Gemma option
+        RadioListTile<AiProvider>(
+          title: const Text('Gemma (Offline)'),
+          subtitle: Text(
+            gemmaService.isModelDownloaded
+                ? 'Model ready (~1.2 GB)'
+                : 'Model not downloaded',
+            style: TextStyle(
+              color: gemmaService.isModelDownloaded ? Colors.green : Colors.orange,
+            ),
+          ),
+          secondary: const Icon(Icons.offline_bolt_outlined),
+          value: AiProvider.gemma,
+          groupValue: currentProvider,
+          onChanged: gemmaService.isModelDownloaded
+              ? (value) async {
+                  if (value != null) {
+                    await AiProviderManager.instance.setProvider(value);
+                    ref.read(aiProviderProvider.notifier).state = value;
+                  }
+                }
+              : null,
+        ),
+
+        // Gemma download/delete button
+        Padding(
+          padding: const EdgeInsets.only(left: 72, right: 16, bottom: 8),
+          child: gemmaService.isModelDownloaded
+              ? OutlinedButton.icon(
+                  onPressed: () => _confirmDeleteGemma(),
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  label: const Text('Delete Model', style: TextStyle(color: Colors.red)),
+                )
+              : _isDownloadingGemma
+                  ? Column(
+                      children: [
+                        LinearProgressIndicator(value: _gemmaProgress),
+                        const SizedBox(height: 8),
+                        Text('Downloading: ${(_gemmaProgress * 100).toInt()}%'),
+                      ],
+                    )
+                  : ElevatedButton.icon(
+                      onPressed: _downloadGemma,
+                      icon: const Icon(Icons.download),
+                      label: const Text('Download Gemma (~1.2 GB)'),
+                    ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTranslationsSection(List<BibleTranslation> translations) {
+    return Column(
+      children: translations.map((trans) {
+        final isDownloading = _downloadingTranslation == trans.id;
+
+        return ListTile(
+          leading: Icon(
+            trans.isDownloaded ? Icons.check_circle : Icons.cloud_download_outlined,
+            color: trans.isDownloaded ? Colors.green : null,
+          ),
+          title: Text(trans.name),
+          subtitle: Text(
+            trans.isDownloaded
+                ? '${trans.verseCount} verses'
+                : trans.isPublicDomain
+                    ? 'Public domain - tap to download'
+                    : 'Licensed',
+          ),
+          trailing: isDownloading
+              ? SizedBox(
+                  width: 100,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      LinearProgressIndicator(value: _downloadProgress),
+                      const SizedBox(height: 4),
+                      Text('${(_downloadProgress * 100).toInt()}%',
+                          style: const TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                )
+              : trans.isDownloaded
+                  ? IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () => _confirmDeleteTranslation(trans),
+                    )
+                  : IconButton(
+                      icon: const Icon(Icons.download),
+                      onPressed: trans.isPublicDomain
+                          ? () => _downloadTranslation(trans.id)
+                          : null,
+                    ),
+        );
+      }).toList(),
+    );
+  }
+
+  Future<void> _downloadTranslation(String translationId) async {
+    setState(() {
+      _downloadingTranslation = translationId;
+      _downloadProgress = 0;
+    });
+
+    try {
+      await BibleDownloadService.instance.downloadTranslation(
+        translationId,
+        onProgress: (current, total, message) {
+          setState(() {
+            _downloadProgress = current / total;
+          });
+        },
+      );
+
+      ref.invalidate(translationsProvider);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$translationId downloaded successfully')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Download failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() {
+        _downloadingTranslation = null;
+        _downloadProgress = 0;
+      });
+    }
+  }
+
+  Future<void> _downloadGemma() async {
+    setState(() {
+      _isDownloadingGemma = true;
+      _gemmaProgress = 0;
+    });
+
+    try {
+      await for (final progress in GemmaAiService.instance.downloadModel()) {
+        setState(() {
+          _gemmaProgress = progress;
+        });
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Gemma model downloaded successfully')),
+        );
+        setState(() {}); // Refresh UI
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gemma download failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() {
+        _isDownloadingGemma = false;
+        _gemmaProgress = 0;
+      });
+    }
+  }
+
+  void _confirmDeleteGemma() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Gemma Model?'),
+        content: const Text(
+          'This will delete the downloaded Gemma model (~1.2 GB). '
+          'You can re-download it later.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await GemmaAiService.instance.deleteModel();
+
+              // Switch to Grok if currently using Gemma
+              if (AiProviderManager.instance.currentProvider == AiProvider.gemma) {
+                await AiProviderManager.instance.setProvider(AiProvider.grok);
+                ref.read(aiProviderProvider.notifier).state = AiProvider.grok;
+              }
+
+              setState(() {});
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Gemma model deleted')),
+              );
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteTranslation(BibleTranslation trans) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete ${trans.abbreviation}?'),
+        content: Text(
+          'This will delete the ${trans.name}. You can re-download it later.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await BibleDownloadService.instance.deleteTranslation(trans.id);
+              ref.invalidate(translationsProvider);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('${trans.abbreviation} deleted')),
+              );
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
         ],
       ),
     );
@@ -212,7 +472,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Enter your Grok API key from xAI to enable AI conversations.',
+              'Enter your Grok API key from xAI to enable cloud AI conversations.',
             ),
             const SizedBox(height: 8),
             const Text(
@@ -291,7 +551,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             _DataRow('Conversations', conversations),
             const SizedBox(height: 16),
             const Text(
-              'All data is stored locally on your device and encrypted.',
+              'All data is stored locally on your device.',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ],
@@ -377,56 +637,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  void _showTextSizeDialog() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Text size settings coming soon')),
-    );
-  }
-
-  void _showTranslationPicker() {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Default Translation',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 16),
-            ListTile(
-              title: const Text('KJV'),
-              subtitle: const Text('King James Version'),
-              leading: _defaultTranslation == 'KJV'
-                  ? Icon(Icons.check_circle, color: AppColors.primaryLight)
-                  : const Icon(Icons.radio_button_unchecked),
-              onTap: () {
-                setState(() => _defaultTranslation = 'KJV');
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              title: const Text('NIV'),
-              subtitle: const Text('New International Version (Coming soon)'),
-              leading: const Icon(Icons.lock_outline, color: Colors.grey),
-              enabled: false,
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showTranslationManager() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Translation manager coming soon')),
-    );
-  }
-
   void _showAbout() {
     showAboutDialog(
       context: context,
@@ -454,17 +664,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             'Hamorah Privacy Policy\n\n'
             '1. Local-First Data Storage\n'
             'All your data (conversations, bookmarks, highlights, notes) is stored '
-            'locally on your device and encrypted.\n\n'
-            '2. API Communications\n'
-            'When you chat with Hamorah, your message is sent to xAI\'s Grok API '
-            'to generate a response. We do not store these conversations on any server.\n\n'
+            'locally on your device.\n\n'
+            '2. AI Communications\n'
+            '• Grok Mode: Messages sent to xAI\'s Grok API for responses.\n'
+            '• Gemma Mode: All AI processing happens on your device - completely private.\n\n'
             '3. Your API Key\n'
-            'Your Grok API key is stored securely on your device using platform-native '
-            'secure storage (Keychain on iOS, Keystore on Android).\n\n'
+            'Your Grok API key is stored securely using platform-native secure storage.\n\n'
             '4. No Tracking\n'
-            'We do not collect analytics, track your usage, or share any data with third parties.\n\n'
+            'We do not collect analytics, track usage, or share any data.\n\n'
             '5. Your Control\n'
-            'You can delete all your data at any time from Settings.',
+            'Delete all your data anytime from Settings.',
           ),
         ),
         actions: [

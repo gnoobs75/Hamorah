@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../core/ai/hamorah_ai_service.dart';
+import '../../../../core/ai/ai_provider_manager.dart';
 import '../../../../data/conversation/conversation_repository.dart';
 import '../../../../data/conversation/models/conversation_models.dart';
 
@@ -14,9 +14,15 @@ final currentMessagesProvider = StateProvider<List<ChatMessage>>((ref) => []);
 /// Provider for loading state
 final isLoadingProvider = StateProvider<bool>((ref) => false);
 
-/// Provider for API key status
-final hasApiKeyProvider = FutureProvider<bool>((ref) async {
-  return await HamorahAiService.instance.hasApiKey();
+/// Provider for AI availability
+final aiAvailableProvider = FutureProvider<bool>((ref) async {
+  return await AiProviderManager.instance.isCurrentProviderAvailable();
+});
+
+/// Provider for current AI provider name
+final aiProviderNameProvider = Provider<String>((ref) {
+  final provider = AiProviderManager.instance.currentProvider;
+  return provider == AiProvider.gemma ? 'Gemma (Offline)' : 'Grok (Cloud)';
 });
 
 /// Main conversation screen - chat interface with Hamorah
@@ -58,9 +64,9 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
 
-    final hasKey = await HamorahAiService.instance.hasApiKey();
-    if (!hasKey) {
-      _showApiKeyDialog();
+    final isAvailable = await AiProviderManager.instance.isCurrentProviderAvailable();
+    if (!isAvailable) {
+      _showConfigureDialog();
       return;
     }
 
@@ -81,10 +87,9 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     ref.read(currentMessagesProvider.notifier).state = [...currentMessages, userMessage];
     _scrollToBottom();
 
-    // Get AI response
-    final aiService = HamorahAiService.instance;
+    // Get AI response using the current provider
     final history = ref.read(currentMessagesProvider);
-    final response = await aiService.chat(text, conversationHistory: history);
+    final response = await AiProviderManager.instance.chat(text, conversationHistory: history);
 
     ref.read(isLoadingProvider.notifier).state = false;
 
@@ -106,13 +111,11 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
         SnackBar(
           content: Text(response.error ?? 'Failed to get response'),
           backgroundColor: Colors.red,
-          action: response.error?.contains('API key') == true
-              ? SnackBarAction(
-                  label: 'Settings',
-                  textColor: Colors.white,
-                  onPressed: () => context.push(AppRoutes.settings),
-                )
-              : null,
+          action: SnackBarAction(
+            label: 'Settings',
+            textColor: Colors.white,
+            onPressed: () => context.push(AppRoutes.settings),
+          ),
         ),
       );
     }
@@ -130,34 +133,23 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     });
   }
 
-  void _showApiKeyDialog() {
-    final controller = TextEditingController();
+  void _showConfigureDialog() {
+    final provider = AiProviderManager.instance.currentProvider;
 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Grok API Key Required'),
+        title: Text(provider == AiProvider.grok
+            ? 'Grok API Key Required'
+            : 'Gemma Model Required'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'To chat with Hamorah, you need a Grok API key from xAI.',
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Get your key at: console.x.ai',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                labelText: 'API Key',
-                hintText: 'xai-...',
-                border: OutlineInputBorder(),
-              ),
-              obscureText: true,
+            Text(
+              provider == AiProvider.grok
+                  ? 'To chat with Hamorah using Grok, you need an API key from xAI.\n\nGet your key at: console.x.ai'
+                  : 'To use offline mode, you need to download the Gemma model (~1.2 GB).',
             ),
           ],
         ),
@@ -167,18 +159,11 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () async {
-              final key = controller.text.trim();
-              if (key.isNotEmpty) {
-                await HamorahAiService.instance.saveApiKey(key);
-                ref.invalidate(hasApiKeyProvider);
-                if (ctx.mounted) Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('API key saved')),
-                );
-              }
+            onPressed: () {
+              Navigator.pop(ctx);
+              context.push(AppRoutes.settings);
             },
-            child: const Text('Save'),
+            child: const Text('Go to Settings'),
           ),
         ],
       ),
@@ -197,11 +182,36 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final messages = ref.watch(currentMessagesProvider);
     final isLoading = ref.watch(isLoadingProvider);
-    final hasApiKeyAsync = ref.watch(hasApiKeyProvider);
+    final aiAvailable = ref.watch(aiAvailableProvider);
+    final providerName = ref.watch(aiProviderNameProvider);
+    final isOffline = AiProviderManager.instance.isOfflineMode;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Hamorah'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Hamorah'),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: isOffline
+                    ? Colors.green.withOpacity(0.2)
+                    : AppColors.primaryLight.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                isOffline ? 'Offline' : 'Cloud',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: isOffline ? Colors.green.shade700 : AppColors.primaryLight,
+                ),
+              ),
+            ),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.add_comment_outlined),
@@ -216,9 +226,9 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
       ),
       body: Column(
         children: [
-          // API key warning banner
-          hasApiKeyAsync.when(
-            data: (hasKey) => hasKey
+          // AI availability warning banner
+          aiAvailable.when(
+            data: (available) => available
                 ? const SizedBox.shrink()
                 : Container(
                     width: double.infinity,
@@ -230,13 +240,15 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'API key required to chat with Hamorah',
+                            isOffline
+                                ? 'Gemma model required for offline mode'
+                                : 'API key required for cloud mode',
                             style: TextStyle(color: Colors.orange.shade900),
                           ),
                         ),
                         TextButton(
-                          onPressed: _showApiKeyDialog,
-                          child: const Text('Add Key'),
+                          onPressed: () => context.push(AppRoutes.settings),
+                          child: const Text('Configure'),
                         ),
                       ],
                     ),
