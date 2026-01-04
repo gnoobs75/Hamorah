@@ -135,66 +135,15 @@ class BibleDatabase {
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
-      // Migrate from version 1 to version 2
-      // Add translations table
-      await db.execute('''
-        CREATE TABLE IF NOT EXISTS translations (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          abbreviation TEXT NOT NULL,
-          language TEXT NOT NULL DEFAULT 'en',
-          is_downloaded INTEGER NOT NULL DEFAULT 0,
-          verse_count INTEGER NOT NULL DEFAULT 0,
-          license_type TEXT NOT NULL DEFAULT 'public_domain'
-        )
-      ''');
+      // Migration from v1 to v2 is complex - easier to recreate
+      // Drop old tables and recreate with new schema
+      await db.execute('DROP TABLE IF EXISTS verses_fts');
+      await db.execute('DROP TABLE IF EXISTS verses');
+      await db.execute('DROP TRIGGER IF EXISTS verses_ai');
+      await db.execute('DROP TRIGGER IF EXISTS verses_ad');
 
-      // Add translation_id column to verses if not exists
-      try {
-        await db.execute('ALTER TABLE verses ADD COLUMN translation_id TEXT NOT NULL DEFAULT "KJV"');
-      } catch (e) {
-        // Column might already exist
-      }
-
-      // Insert translations
-      await db.insert('translations', {
-        'id': 'KJV',
-        'name': 'King James Version',
-        'abbreviation': 'KJV',
-        'language': 'en',
-        'is_downloaded': 1,
-        'verse_count': 0,
-        'license_type': 'public_domain',
-      }, conflictAlgorithm: ConflictAlgorithm.ignore);
-
-      await db.insert('translations', {
-        'id': 'ASV',
-        'name': 'American Standard Version',
-        'abbreviation': 'ASV',
-        'language': 'en',
-        'is_downloaded': 0,
-        'verse_count': 0,
-        'license_type': 'public_domain',
-      }, conflictAlgorithm: ConflictAlgorithm.ignore);
-
-      await db.insert('translations', {
-        'id': 'WEB',
-        'name': 'World English Bible',
-        'abbreviation': 'WEB',
-        'language': 'en',
-        'is_downloaded': 0,
-        'verse_count': 0,
-        'license_type': 'public_domain',
-      }, conflictAlgorithm: ConflictAlgorithm.ignore);
-
-      // Update existing verse count
-      final count = Sqflite.firstIntValue(
-        await db.rawQuery('SELECT COUNT(*) FROM verses WHERE translation_id = "KJV"')
-      ) ?? 0;
-      if (count > 0) {
-        await db.update('translations', {'is_downloaded': 1, 'verse_count': count},
-            where: 'id = ?', whereArgs: ['KJV']);
-      }
+      // Create new schema
+      await _onCreate(db, newVersion);
     }
   }
 
