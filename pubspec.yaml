@@ -39,6 +39,7 @@ dependencies:
   collection: ^1.18.0
   path: ^1.9.0
   http: ^1.2.2
+  dio: ^5.4.0
 
   # On-device AI (Gemma)
   flutter_gemma: ^0.11.16

@@ -373,7 +373,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Gemma model downloaded successfully')),
+          const SnackBar(content: Text('TinyLlama model downloaded successfully')),
         );
         setState(() {}); // Refresh UI
       }
@@ -381,7 +381,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Gemma download failed: $e'),
+            content: Text('Model download failed: $e'),
             backgroundColor: Colors.red,
           ),
         );
