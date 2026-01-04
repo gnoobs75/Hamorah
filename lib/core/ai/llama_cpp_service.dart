@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:ffi';
 import 'dart:io';
 
+import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 import 'package:path_provider/path_provider.dart';
@@ -8,6 +10,10 @@ import 'package:path/path.dart' as p;
 import 'package:dio/dio.dart';
 
 import '../../data/conversation/models/conversation_models.dart';
+
+// Windows API for setting DLL search directory
+typedef SetDllDirectoryNative = Int32 Function(Pointer<Utf16> lpPathName);
+typedef SetDllDirectoryDart = int Function(Pointer<Utf16> lpPathName);
 
 /// Check if running on a desktop platform (Windows/macOS/Linux)
 bool get isDesktopPlatform =>
@@ -308,10 +314,16 @@ class LlamaCppService {
 
     try {
       final libPath = await getLibraryPath();
+      final libDir = await getLibraryDirectory();
       final modelPath = await getModelPath();
 
       debugPrint('Loading llama.cpp from: $libPath');
       debugPrint('Loading model from: $modelPath');
+
+      // On Windows, set the DLL search directory so dependencies can be found
+      if (Platform.isWindows) {
+        _setDllDirectory(libDir);
+      }
 
       Llama.libraryPath = libPath;
       _llama = Llama(modelPath);
@@ -322,6 +334,27 @@ class LlamaCppService {
     } catch (e) {
       debugPrint('Error loading LlamaCpp model: $e');
       return false;
+    }
+  }
+
+  /// Set DLL search directory on Windows
+  void _setDllDirectory(String path) {
+    try {
+      final kernel32 = DynamicLibrary.open('kernel32.dll');
+      final setDllDirectory = kernel32.lookupFunction<
+          SetDllDirectoryNative, SetDllDirectoryDart>('SetDllDirectoryW');
+
+      final pathPtr = path.toNativeUtf16();
+      final result = setDllDirectory(pathPtr);
+      calloc.free(pathPtr);
+
+      if (result != 0) {
+        debugPrint('SetDllDirectory succeeded for: $path');
+      } else {
+        debugPrint('SetDllDirectory failed for: $path');
+      }
+    } catch (e) {
+      debugPrint('Error setting DLL directory: $e');
     }
   }
 

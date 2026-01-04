@@ -40,6 +40,7 @@ dependencies:
   path: ^1.9.0
   http: ^1.2.2
   dio: ^5.4.0
+  ffi: ^2.1.0
 
   # On-device AI (Gemma for mobile, llama.cpp for desktop)
   flutter_gemma: ^0.11.16
