@@ -6,7 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../data/conversation/models/conversation_models.dart';
 import 'hamorah_ai_service.dart';
 import 'gemma_ai_service.dart';
-import 'llama_cpp_service.dart';
+import 'llamafile_service.dart';
 
 /// AI Provider types
 enum AiProvider {
@@ -80,8 +80,7 @@ class AiProviderManager {
   /// Check if offline model is ready (platform-specific)
   bool isOfflineModelReady() {
     if (_isDesktop) {
-      final service = LlamaCppService.instance;
-      return service.isModelDownloaded && service.isLibraryDownloaded;
+      return LlamafileService.instance.isReady;
     } else if (_isMobile) {
       return GemmaAiService.instance.isModelDownloaded;
     }
@@ -102,7 +101,7 @@ class AiProviderManager {
       case AiProvider.gemma:
         // Use platform-appropriate service
         if (_isDesktop) {
-          return await LlamaCppService.instance.chat(
+          return await LlamafileService.instance.chat(
             userMessage,
             conversationHistory: conversationHistory,
           );
@@ -135,7 +134,7 @@ class AiProviderManager {
         return 'Uses xAI Grok API - requires internet and API key';
       case AiProvider.gemma:
         if (_isDesktop) {
-          return 'On-device AI using llama.cpp - works offline, ~669MB download';
+          return 'On-device AI using Llamafile - works offline, ~911MB download';
         }
         return 'On-device AI - works offline, ~1.2GB download';
     }
@@ -149,9 +148,17 @@ class AiProviderManager {
   /// Check if offline model is downloaded
   bool isOfflineModelDownloaded() {
     if (_isDesktop) {
-      return LlamaCppService.instance.isModelDownloaded;
+      return LlamafileService.instance.isDownloaded;
     } else if (_isMobile) {
       return GemmaAiService.instance.isModelDownloaded;
+    }
+    return false;
+  }
+
+  /// Check if llamafile server is running (desktop only)
+  bool isLlamafileRunning() {
+    if (_isDesktop) {
+      return LlamafileService.instance.isRunning;
     }
     return false;
   }
@@ -159,7 +166,7 @@ class AiProviderManager {
   /// Get offline model info
   Map<String, dynamic> getOfflineModelInfo() {
     if (_isDesktop) {
-      return LlamaCppService.instance.getModelInfo();
+      return LlamafileService.instance.getModelInfo();
     } else if (_isMobile) {
       return GemmaAiService.instance.getModelInfo();
     }
@@ -169,7 +176,7 @@ class AiProviderManager {
   /// Download offline model (returns progress stream)
   Stream<double> downloadOfflineModel() {
     if (_isDesktop) {
-      return LlamaCppService.instance.downloadAll();
+      return LlamafileService.instance.download();
     } else if (_isMobile) {
       return GemmaAiService.instance.downloadModel();
     }
@@ -179,7 +186,7 @@ class AiProviderManager {
   /// Delete offline model
   Future<void> deleteOfflineModel() async {
     if (_isDesktop) {
-      await LlamaCppService.instance.deleteModel();
+      await LlamafileService.instance.delete();
     } else if (_isMobile) {
       await GemmaAiService.instance.deleteModel();
     }
@@ -200,7 +207,8 @@ class AiProviderManager {
         'name': _isDesktop ? 'TinyLlama (Offline)' : 'Gemma (Offline)',
         'description': 'On-device AI - works without internet',
         'isConfigured': isOfflineModelReady(),
-        'isLoaded': offlineInfo['isLoaded'] ?? false,
+        'isRunning': offlineInfo['isRunning'] ?? false,
+        'isDownloaded': offlineInfo['isDownloaded'] ?? false,
         'requiresInternet': false,
         'modelSize': offlineInfo['size'] ?? 'Unknown',
       },

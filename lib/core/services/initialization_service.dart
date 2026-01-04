@@ -13,7 +13,7 @@ import '../../data/user/user_data_repository.dart';
 import '../../data/conversation/conversation_repository.dart';
 import '../ai/ai_provider_manager.dart';
 import '../ai/gemma_ai_service.dart';
-import '../ai/llama_cpp_service.dart';
+import '../ai/llamafile_service.dart';
 
 /// App initialization state
 enum InitState {
@@ -100,9 +100,9 @@ class InitializationNotifier extends StateNotifier<InitStatus> {
 
       // Initialize platform-appropriate AI service
       if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
-        // Desktop: use llama.cpp
-        await LlamaCppService.instance.initialize();
-        debugPrint('LlamaCpp service initialized for desktop');
+        // Desktop: use Llamafile
+        await LlamafileService.instance.initialize();
+        debugPrint('Llamafile service initialized for desktop');
       } else {
         // Mobile: use Gemma
         await GemmaAiService.instance.initialize();

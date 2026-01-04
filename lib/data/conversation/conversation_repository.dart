@@ -110,6 +110,7 @@ class ConversationRepository {
     required MessageRole role,
     required String content,
     List<String>? relatedVerses,
+    String? debugInfoJson,
   }) async {
     final message = ChatMessage(
       id: _uuid.v4(),
@@ -117,6 +118,7 @@ class ConversationRepository {
       content: content,
       timestamp: DateTime.now(),
       relatedVerses: relatedVerses,
+      debugInfoJson: debugInfoJson,
     );
 
     await _messages?.put(message.id, message);

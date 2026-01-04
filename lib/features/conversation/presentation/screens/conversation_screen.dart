@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -13,6 +16,9 @@ final currentMessagesProvider = StateProvider<List<ChatMessage>>((ref) => []);
 
 /// Provider for loading state
 final isLoadingProvider = StateProvider<bool>((ref) => false);
+
+/// Provider for debug info storage (messageId -> debugInfo)
+final debugInfoProvider = StateProvider<Map<String, AiDebugInfo>>((ref) => {});
 
 /// Provider for AI availability
 final aiAvailableProvider = FutureProvider<bool>((ref) async {
@@ -94,13 +100,35 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     ref.read(isLoadingProvider.notifier).state = false;
 
     if (response.success) {
-      // Add AI response
+      // Add AI response with debug info
+      final debugInfoJson = response.debugInfo != null
+          ? jsonEncode({
+              'provider': response.debugInfo!.provider,
+              'model': response.debugInfo!.model,
+              'rawPrompt': response.debugInfo!.rawPrompt,
+              'timestamp': response.debugInfo!.timestamp.toIso8601String(),
+              'promptTokens': response.debugInfo!.promptTokens,
+              'responseTokens': response.debugInfo!.responseTokens,
+              'responseTimeMs': response.debugInfo!.responseTime?.inMilliseconds,
+            })
+          : null;
+
       final aiMessage = await repo.addMessage(
         conversationId: _currentConversationId!,
         role: MessageRole.assistant,
         content: response.content,
         relatedVerses: response.relatedVerses,
+        debugInfoJson: debugInfoJson,
       );
+
+      // Store debug info in provider for quick access
+      if (response.debugInfo != null) {
+        final currentDebugInfo = ref.read(debugInfoProvider);
+        ref.read(debugInfoProvider.notifier).state = {
+          ...currentDebugInfo,
+          aiMessage.id: response.debugInfo!,
+        };
+      }
 
       final updatedMessages = ref.read(currentMessagesProvider);
       ref.read(currentMessagesProvider.notifier).state = [...updatedMessages, aiMessage];
@@ -175,6 +203,137 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
     final conversation = await repo.createNewConversation();
     _currentConversationId = conversation.id;
     ref.read(currentMessagesProvider.notifier).state = [];
+  }
+
+  void _showDebugInfo(ChatMessage message) {
+    // Try to get from provider first (for current session)
+    var debugInfo = ref.read(debugInfoProvider)[message.id];
+
+    // If not in provider, try to parse from stored JSON
+    if (debugInfo == null && message.debugInfoJson != null) {
+      try {
+        final json = jsonDecode(message.debugInfoJson!);
+        debugInfo = AiDebugInfo(
+          provider: json['provider'] ?? 'Unknown',
+          model: json['model'] ?? 'Unknown',
+          rawPrompt: json['rawPrompt'] ?? '',
+          timestamp: json['timestamp'] != null
+              ? DateTime.parse(json['timestamp'])
+              : message.timestamp,
+          promptTokens: json['promptTokens'],
+          responseTokens: json['responseTokens'],
+          responseTime: json['responseTimeMs'] != null
+              ? Duration(milliseconds: json['responseTimeMs'])
+              : null,
+        );
+      } catch (e) {
+        debugInfo = null;
+      }
+    }
+
+    if (debugInfo == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No debug info available for this message')),
+      );
+      return;
+    }
+
+    // Capture non-null reference for use in builder
+    final info = debugInfo;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.4,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          children: [
+            // Handle
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            // Header
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Icon(Icons.bug_report, color: AppColors.primaryLight),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Debug Info',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.copy),
+                    tooltip: 'Copy to clipboard',
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: info.toString()));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Copied to clipboard')),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            // Content
+            Expanded(
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.all(16),
+                children: [
+                  _DebugInfoRow('Provider', info.provider),
+                  _DebugInfoRow('Model', info.model),
+                  _DebugInfoRow('Timestamp', info.timestamp.toString()),
+                  if (info.promptTokens != null)
+                    _DebugInfoRow('Prompt Tokens', info.promptTokens.toString()),
+                  if (info.responseTokens != null)
+                    _DebugInfoRow('Response Tokens', info.responseTokens.toString()),
+                  if (info.responseTime != null)
+                    _DebugInfoRow('Response Time', '${info.responseTime!.inMilliseconds}ms'),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Raw Prompt',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: SelectableText(
+                      info.rawPrompt,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -272,6 +431,9 @@ class _ConversationScreenState extends ConsumerState<ConversationScreen> {
                       return _MessageBubble(
                         message: messages[index],
                         isDark: isDark,
+                        onInspect: messages[index].isAssistant
+                            ? () => _showDebugInfo(messages[index])
+                            : null,
                       );
                     },
                   ),
@@ -413,8 +575,13 @@ class _SuggestionChip extends StatelessWidget {
 class _MessageBubble extends StatelessWidget {
   final ChatMessage message;
   final bool isDark;
+  final VoidCallback? onInspect;
 
-  const _MessageBubble({required this.message, required this.isDark});
+  const _MessageBubble({
+    required this.message,
+    required this.isDark,
+    this.onInspect,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -438,36 +605,108 @@ class _MessageBubble extends StatelessWidget {
             const SizedBox(width: 8),
           ],
           Flexible(
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: message.isUser
-                    ? AppColors.primaryLight
-                    : (isDark ? AppColors.surfaceDark : AppColors.surfaceLight),
-                borderRadius: BorderRadius.circular(16).copyWith(
-                  bottomLeft: message.isUser ? null : const Radius.circular(4),
-                  bottomRight: message.isUser ? const Radius.circular(4) : null,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 5,
-                    offset: const Offset(0, 2),
+            child: Column(
+              crossAxisAlignment: message.isUser
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: message.isUser
+                        ? AppColors.primaryLight
+                        : (isDark ? AppColors.surfaceDark : AppColors.surfaceLight),
+                    borderRadius: BorderRadius.circular(16).copyWith(
+                      bottomLeft: message.isUser ? null : const Radius.circular(4),
+                      bottomRight: message.isUser ? const Radius.circular(4) : null,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 5,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              child: SelectableText(
-                message.content,
-                style: TextStyle(
-                  color: message.isUser
-                      ? Colors.white
-                      : (isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight),
-                  height: 1.5,
+                  child: SelectableText(
+                    message.content,
+                    style: TextStyle(
+                      color: message.isUser
+                          ? Colors.white
+                          : (isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight),
+                      height: 1.5,
+                    ),
+                  ),
                 ),
-              ),
+                // Inspect button for assistant messages
+                if (onInspect != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: InkWell(
+                      onTap: onInspect,
+                      borderRadius: BorderRadius.circular(4),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.bug_report_outlined,
+                              size: 14,
+                              color: Colors.grey.shade500,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Inspect',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           if (message.isUser) const SizedBox(width: 8),
+        ],
+      ),
+    );
+  }
+}
+
+class _DebugInfoRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _DebugInfoRow(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
         ],
       ),
     );

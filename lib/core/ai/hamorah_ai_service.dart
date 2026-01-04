@@ -117,11 +117,26 @@ Remember: Your role is to be a gentle guide pointing to Scripture, not a decisio
     return await _secureStorage.read(key: _apiKeyStorageKey);
   }
 
+  /// Build a human-readable prompt string for debugging
+  String _buildDebugPrompt(List<Map<String, dynamic>> messages) {
+    final buffer = StringBuffer();
+    for (final msg in messages) {
+      final role = msg['role'] as String;
+      final content = msg['content'] as String;
+      buffer.writeln('[$role]');
+      buffer.writeln(content);
+      buffer.writeln();
+    }
+    return buffer.toString();
+  }
+
   /// Send a message to Hamorah and get a response
   Future<AiResponse> chat(
     String userMessage, {
     List<ChatMessage>? conversationHistory,
   }) async {
+    final startTime = DateTime.now();
+
     try {
       final apiKey = await getApiKey();
       if (apiKey == null || apiKey.isEmpty) {
@@ -157,6 +172,9 @@ Remember: Your role is to be a gentle guide pointing to Scripture, not a decisio
         'content': userMessage,
       });
 
+      // Build debug prompt
+      final rawPrompt = _buildDebugPrompt(messages);
+
       debugPrint('Sending request to Grok API...');
 
       final response = await http.post(
@@ -173,11 +191,17 @@ Remember: Your role is to be a gentle guide pointing to Scripture, not a decisio
         }),
       ).timeout(const Duration(seconds: 60));
 
+      final responseTime = DateTime.now().difference(startTime);
       debugPrint('Response status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final content = data['choices']?[0]?['message']?['content'] as String? ?? '';
+
+        // Extract token usage if available
+        final usage = data['usage'] as Map<String, dynamic>?;
+        final promptTokens = usage?['prompt_tokens'] as int?;
+        final responseTokens = usage?['completion_tokens'] as int?;
 
         // Extract verse references from response (simple pattern matching)
         final versePattern = RegExp(
@@ -190,19 +214,47 @@ Remember: Your role is to be a gentle guide pointing to Scripture, not a decisio
         return AiResponse(
           content: content,
           relatedVerses: relatedVerses,
+          debugInfo: AiDebugInfo(
+            provider: 'Grok',
+            model: _model,
+            rawPrompt: rawPrompt,
+            promptTokens: promptTokens,
+            responseTokens: responseTokens,
+            responseTime: responseTime,
+          ),
         );
       } else if (response.statusCode == 401) {
         return AiResponse.error(
           'Invalid API key. Please check your Grok API key in Settings.',
+          debugInfo: AiDebugInfo(
+            provider: 'Grok',
+            model: _model,
+            rawPrompt: rawPrompt,
+            responseTime: responseTime,
+          ),
         );
       } else if (response.statusCode == 429) {
         return AiResponse.error(
           'Rate limit exceeded. Please wait a moment and try again.',
+          debugInfo: AiDebugInfo(
+            provider: 'Grok',
+            model: _model,
+            rawPrompt: rawPrompt,
+            responseTime: responseTime,
+          ),
         );
       } else {
         final errorBody = jsonDecode(response.body);
         final errorMessage = errorBody['error']?['message'] ?? 'Unknown error';
-        return AiResponse.error('API error: $errorMessage');
+        return AiResponse.error(
+          'API error: $errorMessage',
+          debugInfo: AiDebugInfo(
+            provider: 'Grok',
+            model: _model,
+            rawPrompt: rawPrompt,
+            responseTime: responseTime,
+          ),
+        );
       }
     } catch (e) {
       debugPrint('Chat error: $e');

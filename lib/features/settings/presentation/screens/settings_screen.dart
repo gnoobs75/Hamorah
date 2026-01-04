@@ -182,8 +182,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final manager = AiProviderManager.instance;
     final modelInfo = manager.getOfflineModelInfo();
     final isModelReady = manager.isOfflineModelReady();
+    final isModelDownloaded = manager.isOfflineModelDownloaded();
     final modelName = modelInfo['name'] ?? 'TinyLlama';
-    final modelSize = modelInfo['size'] ?? '~669 MB';
+    final modelSize = modelInfo['size'] ?? '~670 MB';
 
     return Column(
       children: [
@@ -231,9 +232,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           subtitle: Text(
             isModelReady
                 ? 'Model ready ($modelSize)'
-                : 'Model not downloaded',
+                : (isModelDownloaded ? 'Starting server...' : 'Model not downloaded'),
             style: TextStyle(
-              color: isModelReady ? Colors.green : Colors.orange,
+              color: isModelReady
+                  ? Colors.green
+                  : (isModelDownloaded ? Colors.blue : Colors.orange),
             ),
           ),
           secondary: const Icon(Icons.offline_bolt_outlined),
