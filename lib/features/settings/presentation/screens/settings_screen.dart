@@ -11,7 +11,9 @@ import '../../../../data/user/user_data_repository.dart';
 import '../../../../data/conversation/conversation_repository.dart';
 import '../../../../data/bible/bible_database.dart';
 import '../../../../data/bible/bible_download_service.dart';
+import '../../../../data/bible/kjv_importer.dart';
 import '../../../../data/bible/models/bible_models.dart';
+import '../../../../core/router/app_router.dart';
 
 /// Provider for API key status
 final apiKeyStatusProvider = FutureProvider<bool>((ref) async {
@@ -42,6 +44,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   double _downloadProgress = 0;
   bool _isDownloadingGemma = false;
   double _gemmaProgress = 0;
+  bool _isDownloadingBible = false;
+  double _bibleDownloadProgress = 0;
+  String _bibleDownloadMessage = '';
 
   @override
   Widget build(BuildContext context) {
@@ -62,6 +67,57 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           // AI Provider section
           _SectionHeader('AI Provider', Icons.psychology_outlined),
           _buildAiProviderSection(currentProvider, hasApiKey),
+
+          const Divider(height: 32),
+
+          // Features section
+          _SectionHeader('Features', Icons.widgets_outlined),
+          _SettingsTile(
+            icon: Icons.calendar_today_outlined,
+            title: 'Reading Plans',
+            subtitle: 'Read through the Bible systematically',
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push(AppRoutes.readingPlans),
+          ),
+          _SettingsTile(
+            icon: Icons.wb_sunny_outlined,
+            title: 'Daily Devotional',
+            subtitle: 'Start your day with Scripture',
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push(AppRoutes.devotional),
+          ),
+          _SettingsTile(
+            icon: Icons.psychology_outlined,
+            title: 'Verse Memorization',
+            subtitle: 'Memorize Scripture with spaced repetition',
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push(AppRoutes.memorization),
+          ),
+
+          const Divider(height: 32),
+
+          // Bible Data section
+          _SectionHeader('Bible Data', Icons.menu_book_outlined),
+          _SettingsTile(
+            icon: Icons.download_outlined,
+            title: 'Download Full KJV Bible',
+            subtitle: 'Download complete King James Version (~5MB)',
+            trailing: _isDownloadingBible
+                ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.chevron_right),
+            onTap: _isDownloadingBible ? null : _downloadFullBible,
+          ),
+          if (_bibleDownloadProgress > 0 && _bibleDownloadProgress < 1)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                children: [
+                  LinearProgressIndicator(value: _bibleDownloadProgress),
+                  const SizedBox(height: 4),
+                  Text(_bibleDownloadMessage, style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+            ),
 
           const Divider(height: 32),
 
@@ -324,6 +380,63 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         );
       }).toList(),
     );
+  }
+
+  Future<void> _downloadFullBible() async {
+    setState(() {
+      _isDownloadingBible = true;
+      _bibleDownloadProgress = 0;
+      _bibleDownloadMessage = 'Starting download...';
+    });
+
+    try {
+      final database = BibleDatabase.instance;
+      final importer = KjvImporter(database);
+
+      final success = await importer.importFromNetwork(
+        onProgress: (progress, message) {
+          if (mounted) {
+            setState(() {
+              _bibleDownloadProgress = progress;
+              _bibleDownloadMessage = message;
+            });
+          }
+        },
+      );
+
+      if (mounted) {
+        if (success) {
+          final count = await database.getVerseCount();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('KJV Bible downloaded: $count verses')),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Download failed. Check your internet connection.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDownloadingBible = false;
+          _bibleDownloadProgress = 0;
+          _bibleDownloadMessage = '';
+        });
+      }
+    }
   }
 
   Future<void> _downloadTranslation(String translationId) async {

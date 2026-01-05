@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_container"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="@drawable/widget_background">
+
+    <!-- Header with app name -->
+    <TextView
+        android:id="@+id/widget_header"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Daily Verse"
+        android:textSize="12sp"
+        android:textColor="#666666"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+
+    <!-- Verse text -->
+    <TextView
+        android:id="@+id/verse_text"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:text="Loading..."
+        android:textSize="14sp"
+        android:textColor="#333333"
+        android:ellipsize="end"
+        android:maxLines="4"
+        android:lineSpacingMultiplier="1.2" />
+
+    <!-- Verse reference -->
+    <TextView
+        android:id="@+id/verse_reference"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textSize="12sp"
+        android:textColor="#1976D2"
+        android:textStyle="italic"
+        android:layout_marginTop="8dp"
+        android:layout_gravity="end" />
+
+</LinearLayout>

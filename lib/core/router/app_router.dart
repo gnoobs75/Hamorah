@@ -11,6 +11,12 @@ import '../../features/loading/presentation/screens/loading_screen.dart';
 import '../../features/pastors_notes/presentation/screens/sessions_list_screen.dart';
 import '../../features/pastors_notes/presentation/screens/recording_screen.dart';
 import '../../features/pastors_notes/presentation/screens/session_detail_screen.dart';
+import '../../features/reading_plans/presentation/screens/reading_plans_screen.dart';
+import '../../features/reading_plans/presentation/screens/plan_detail_screen.dart';
+import '../../features/reading_plans/presentation/screens/daily_reading_screen.dart';
+import '../../features/devotional/presentation/screens/devotional_screen.dart';
+import '../../features/memorization/presentation/screens/memory_verses_screen.dart';
+import '../../features/memorization/presentation/screens/practice_screen.dart';
 import '../widgets/main_scaffold.dart';
 
 /// Route names for type-safe navigation
@@ -24,6 +30,9 @@ class AppRoutes {
   static const String settings = '/settings';
   static const String pastorsNotes = '/pastors-notes';
   static const String pastorsNotesRecord = '/pastors-notes/record';
+  static const String readingPlans = '/reading-plans';
+  static const String devotional = '/devotional';
+  static const String memorization = '/memorization';
 }
 
 /// App router configuration using go_router
@@ -103,6 +112,49 @@ class AppRouter {
                 final sessionId = state.pathParameters['sessionId']!;
                 return SessionDetailScreen(sessionId: sessionId);
               },
+            ),
+          ],
+        ),
+
+        // Reading Plans feature
+        GoRoute(
+          path: AppRoutes.readingPlans,
+          builder: (context, state) => const ReadingPlansScreen(),
+          routes: [
+            GoRoute(
+              path: ':planId',
+              builder: (context, state) {
+                final planId = state.pathParameters['planId']!;
+                return PlanDetailScreen(planId: planId);
+              },
+              routes: [
+                GoRoute(
+                  path: 'day/:dayNumber',
+                  builder: (context, state) {
+                    final planId = state.pathParameters['planId']!;
+                    final dayNumber = int.tryParse(state.pathParameters['dayNumber'] ?? '1') ?? 1;
+                    return DailyReadingScreen(planId: planId, dayNumber: dayNumber);
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+
+        // Daily Devotional feature
+        GoRoute(
+          path: AppRoutes.devotional,
+          builder: (context, state) => const DevotionalScreen(),
+        ),
+
+        // Memorization feature
+        GoRoute(
+          path: AppRoutes.memorization,
+          builder: (context, state) => const MemoryVersesScreen(),
+          routes: [
+            GoRoute(
+              path: 'practice',
+              builder: (context, state) => const PracticeScreen(),
             ),
           ],
         ),

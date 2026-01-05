@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hamorah</string>
+    <string name="widget_daily_verse_description">Display today\'s verse on your home screen</string>
+    <string name="widget_reading_plan_description">Track your reading plan progress</string>
+</resources>

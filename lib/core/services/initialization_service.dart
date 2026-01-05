@@ -12,6 +12,12 @@ import '../../data/bible/kjv_importer.dart';
 import '../../data/user/user_data_repository.dart';
 import '../../data/conversation/conversation_repository.dart';
 import '../../data/pastors_notes/pastors_notes_repository.dart';
+import '../../data/reading_plans/reading_plan_repository.dart';
+import '../../data/devotional/devotional_repository.dart';
+import '../../data/memorization/memorization_repository.dart';
+import 'notification_service.dart';
+import 'widget_service.dart';
+import 'tts_service.dart';
 import '../ai/ai_provider_manager.dart';
 import '../ai/gemma_ai_service.dart';
 import '../ai/llamafile_service.dart';
@@ -93,6 +99,24 @@ class InitializationNotifier extends StateNotifier<InitStatus> {
 
       // Initialize Pastor's Notes repository
       await PastorsNotesRepository.instance.initialize();
+
+      // Initialize Reading Plans repository
+      await ReadingPlanRepository.instance.initialize();
+
+      // Initialize Devotional repository
+      await DevotionalRepository.instance.initialize();
+
+      // Initialize Notification service
+      await NotificationService.instance.initialize();
+
+      // Initialize Memorization repository
+      await MemorizationRepository.instance.initialize();
+
+      // Initialize TTS service
+      await TtsService.instance.initialize();
+
+      // Initialize Widget service (for home screen widgets)
+      await WidgetService.instance.initialize();
 
       state = state.copyWith(
         message: 'Initializing AI services...',

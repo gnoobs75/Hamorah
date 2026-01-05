@@ -12,63 +12,82 @@ typedef ProgressCallback = void Function(double progress, String message);
 class KjvImporter {
   final BibleDatabase _database;
 
-  // Reliable KJV JSON source (getbible.net public API)
-  static const String _kjvApiUrl =
-    'https://getbible.net/v2/kjv.json';
+  // GitHub raw files base URL (aruljohn/Bible-kjv repo)
+  static const String _baseUrl =
+    'https://raw.githubusercontent.com/aruljohn/Bible-kjv/master';
+
+  // All 66 books in order (file names match GitHub repo naming convention)
+  static const List<String> _bookFiles = [
+    'Genesis', 'Exodus', 'Leviticus', 'Numbers', 'Deuteronomy',
+    'Joshua', 'Judges', 'Ruth', '1Samuel', '2Samuel',
+    '1Kings', '2Kings', '1Chronicles', '2Chronicles', 'Ezra',
+    'Nehemiah', 'Esther', 'Job', 'Psalms', 'Proverbs',
+    'Ecclesiastes', 'SongofSolomon', 'Isaiah', 'Jeremiah', 'Lamentations',
+    'Ezekiel', 'Daniel', 'Hosea', 'Joel', 'Amos',
+    'Obadiah', 'Jonah', 'Micah', 'Nahum', 'Habakkuk',
+    'Zephaniah', 'Haggai', 'Zechariah', 'Malachi',
+    'Matthew', 'Mark', 'Luke', 'John', 'Acts',
+    'Romans', '1Corinthians', '2Corinthians', 'Galatians', 'Ephesians',
+    'Philippians', 'Colossians', '1Thessalonians', '2Thessalonians', '1Timothy',
+    '2Timothy', 'Titus', 'Philemon', 'Hebrews', 'James',
+    '1Peter', '2Peter', '1John', '2John', '3John',
+    'Jude', 'Revelation',
+  ];
 
   KjvImporter(this._database);
 
-  /// Import KJV Bible from online source
+  /// Import KJV Bible from GitHub
   Future<bool> importFromNetwork({ProgressCallback? onProgress}) async {
     try {
-      onProgress?.call(0.0, 'Downloading KJV Bible...');
+      onProgress?.call(0.0, 'Starting KJV download...');
 
-      final jsonData = await _fetchJson(_kjvApiUrl);
+      List<BibleVerse> allVerses = [];
+      int verseId = 1;
 
-      if (jsonData == null) {
-        debugPrint('Failed to download Bible data');
-        onProgress?.call(0.0, 'Download failed. Using sample data...');
-        return false;
-      }
+      // Download each book
+      for (int i = 0; i < _bookFiles.length; i++) {
+        final bookName = _bookFiles[i];
+        final progress = i / _bookFiles.length;
+        onProgress?.call(progress * 0.8, 'Downloading $bookName...');
 
-      onProgress?.call(0.2, 'Parsing Bible data...');
+        final url = '$_baseUrl/${Uri.encodeComponent(bookName)}.json';
+        final jsonData = await _fetchJson(url);
 
-      // Parse JSON
-      final data = json.decode(jsonData);
+        if (jsonData == null) {
+          debugPrint('Failed to download $bookName');
+          continue;
+        }
 
-      List<BibleVerse> verses = [];
-
-      // getbible.net format: {"books": [{"name": "Genesis", "chapters": [{"chapter": 1, "verses": [{"verse": 1, "text": "..."}]}]}]}
-      if (data is Map && data.containsKey('books')) {
-        verses = _parseGetBibleFormat(data);
-      } else {
-        debugPrint('Unknown format, trying alternative parsing...');
-        // Try parsing as simple list
-        if (data is List) {
-          verses = _parseSimpleList(data);
+        try {
+          final data = json.decode(jsonData);
+          final bookVerses = _parseBookJson(data, verseId);
+          allVerses.addAll(bookVerses);
+          verseId += bookVerses.length;
+          debugPrint('Parsed $bookName: ${bookVerses.length} verses');
+        } catch (e) {
+          debugPrint('Error parsing $bookName: $e');
         }
       }
 
-      if (verses.isEmpty) {
-        debugPrint('No verses parsed from data');
-        onProgress?.call(0.0, 'Failed to parse Bible data');
+      if (allVerses.isEmpty) {
+        onProgress?.call(0.0, 'No verses downloaded');
         return false;
       }
 
-      onProgress?.call(0.5, 'Importing ${verses.length} verses...');
+      onProgress?.call(0.8, 'Saving ${allVerses.length} verses...');
 
       // Clear existing data
       await _database.clearAll();
 
       // Insert in batches
       const batchSize = 500;
-      for (var i = 0; i < verses.length; i += batchSize) {
-        final end = (i + batchSize < verses.length) ? i + batchSize : verses.length;
-        final batch = verses.sublist(i, end);
+      for (var i = 0; i < allVerses.length; i += batchSize) {
+        final end = (i + batchSize < allVerses.length) ? i + batchSize : allVerses.length;
+        final batch = allVerses.sublist(i, end);
         await _database.insertVerses(batch);
 
-        final progress = 0.5 + (0.5 * (end / verses.length));
-        onProgress?.call(progress, 'Importing... ${end}/${verses.length}');
+        final progress = 0.8 + (0.2 * (end / allVerses.length));
+        onProgress?.call(progress, 'Saving... ${end}/${allVerses.length}');
       }
 
       final finalCount = await _database.getVerseCount();
@@ -78,123 +97,83 @@ class KjvImporter {
     } catch (e, stack) {
       debugPrint('KJV Import error: $e');
       debugPrint('Stack: $stack');
-      onProgress?.call(0.0, 'Import failed: ${e.toString().substring(0, 100)}');
+      onProgress?.call(0.0, 'Import failed: $e');
       return false;
     }
   }
 
   Future<String?> _fetchJson(String url) async {
     try {
-      debugPrint('Fetching Bible from: $url');
+      debugPrint('Fetching: $url');
       final response = await http.get(
         Uri.parse(url),
-        headers: {'Accept': 'application/json'},
-      ).timeout(const Duration(seconds: 120));
-
-      debugPrint('Response status: ${response.statusCode}');
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Hamorah-Bible-App',
+        },
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
-        debugPrint('Downloaded ${response.body.length} bytes');
         return response.body;
       }
+      debugPrint('HTTP ${response.statusCode} for $url');
     } catch (e) {
       debugPrint('Failed to fetch $url: $e');
     }
     return null;
   }
 
-  /// Parse getBible.net format
-  List<BibleVerse> _parseGetBibleFormat(Map<dynamic, dynamic> data) {
+  /// Parse aruljohn/Bible-kjv format
+  /// {"book": "Matthew", "chapters": [{"chapter": "1", "verses": [{"verse": "1", "text": "..."}]}]}
+  List<BibleVerse> _parseBookJson(Map<dynamic, dynamic> data, int startId) {
     final verses = <BibleVerse>[];
-    int id = 1;
+    int id = startId;
 
-    final books = data['books'] as List?;
-    if (books == null) return verses;
+    final bookName = data['book'] as String?;
+    if (bookName == null) return verses;
 
-    for (final bookData in books) {
-      if (bookData is! Map) continue;
+    final book = BibleBooks.getByName(bookName);
+    if (book == null) {
+      debugPrint('Unknown book: $bookName');
+      return verses;
+    }
 
-      final bookName = bookData['name'] as String?;
-      if (bookName == null) continue;
+    final chapters = data['chapters'] as List?;
+    if (chapters == null) return verses;
 
-      final book = BibleBooks.getByName(bookName);
-      if (book == null) {
-        debugPrint('Unknown book: $bookName');
-        continue;
-      }
+    for (final chapterData in chapters) {
+      if (chapterData is! Map) continue;
 
-      final chapters = bookData['chapters'] as List?;
-      if (chapters == null) continue;
+      final chapterNum = int.tryParse(chapterData['chapter']?.toString() ?? '') ?? 0;
+      if (chapterNum == 0) continue;
 
-      for (final chapterData in chapters) {
-        if (chapterData is! Map) continue;
+      final verseList = chapterData['verses'] as List?;
+      if (verseList == null) continue;
 
-        final chapterNum = chapterData['chapter'] as int?;
-        if (chapterNum == null) continue;
+      for (final verseData in verseList) {
+        if (verseData is! Map) continue;
 
-        final versesData = chapterData['verses'] as List?;
-        if (versesData == null) continue;
+        final verseNum = int.tryParse(verseData['verse']?.toString() ?? '') ?? 0;
+        final text = verseData['text'] as String?;
 
-        for (final verseData in versesData) {
-          if (verseData is! Map) continue;
-
-          final verseNum = verseData['verse'] as int?;
-          final text = verseData['text'] as String?;
-
-          if (verseNum != null && text != null && text.isNotEmpty) {
-            verses.add(BibleVerse(
-              id: id++,
-              bookId: book.id,
-              chapter: chapterNum,
-              verse: verseNum,
-              text: text.trim(),
-              bookName: book.name,
-            ));
-          }
+        if (verseNum > 0 && text != null && text.isNotEmpty) {
+          verses.add(BibleVerse(
+            id: id++,
+            bookId: book.id,
+            bookName: book.name,
+            chapter: chapterNum,
+            verse: verseNum,
+            text: text.trim(),
+          ));
         }
       }
     }
 
-    debugPrint('Parsed ${verses.length} verses from getBible format');
-    return verses;
-  }
-
-  /// Parse simple list format
-  List<BibleVerse> _parseSimpleList(List<dynamic> data) {
-    final verses = <BibleVerse>[];
-    int id = 1;
-
-    for (final item in data) {
-      if (item is! Map) continue;
-
-      final bookName = item['book'] as String? ?? item['book_name'] as String?;
-      if (bookName == null) continue;
-
-      final book = BibleBooks.getByName(bookName);
-      if (book == null) continue;
-
-      final chapter = item['chapter'] as int?;
-      final verse = item['verse'] as int?;
-      final text = item['text'] as String?;
-
-      if (chapter != null && verse != null && text != null && text.isNotEmpty) {
-        verses.add(BibleVerse(
-          id: id++,
-          bookId: book.id,
-          chapter: chapter,
-          verse: verse,
-          text: text.trim(),
-          bookName: book.name,
-        ));
-      }
-    }
-
-    debugPrint('Parsed ${verses.length} verses from simple list format');
     return verses;
   }
 }
 
-/// Hardcoded KJV data for sample/offline use
+/// Sample data for offline/testing
 class KjvSampleData {
   static Future<void> loadIntoDatabase(BibleDatabase database) async {
     await database.clearAll();
@@ -205,6 +184,7 @@ class KjvSampleData {
     allVerses.addAll(_getPsalm23());
     allVerses.addAll(_getJohn3());
     allVerses.addAll(_getJohn1());
+    allVerses.addAll(_getMatthew1());
 
     await database.insertVerses(allVerses);
     debugPrint('Loaded ${allVerses.length} sample verses');
@@ -261,28 +241,34 @@ class KjvSampleData {
       "Jesus answered, Verily, verily, I say unto thee, Except a man be born of water and of the Spirit, he cannot enter into the kingdom of God.",
       "That which is born of the flesh is flesh; and that which is born of the Spirit is spirit.",
       "Marvel not that I said unto thee, Ye must be born again.",
-      "The wind bloweth where it listeth, and thou hearest the sound thereof, but canst not tell whence it cometh, and whither it goeth: so is every one that is born of the Spirit.",
-      "Nicodemus answered and said unto him, How can these things be?",
-      "Jesus answered and said unto him, Art thou a master of Israel, and knowest not these things?",
-      "Verily, verily, I say unto thee, We speak that we do know, and testify that we have seen; and ye receive not our witness.",
-      "If I have told you earthly things, and ye believe not, how shall ye believe, if I tell you of heavenly things?",
-      "And no man hath ascended up to heaven, but he that came down from heaven, even the Son of man which is in heaven.",
-      "And as Moses lifted up the serpent in the wilderness, even so must the Son of man be lifted up:",
-      "That whosoever believeth in him should not perish, but have eternal life.",
       "For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.",
-      "For God sent not his Son into the world to condemn the world; but that the world through him might be saved.",
     ];
-    return _createVerses(bookId, chapter, texts, 'John');
+    return _createVerses(bookId, chapter, texts, 'John', startVerse: 1);
   }
 
-  static List<BibleVerse> _createVerses(int bookId, int chapter, List<String> texts, String bookName) {
-    return List.generate(texts.length, (index) => BibleVerse(
-      id: 0, // Will be auto-assigned
-      bookId: bookId,
-      chapter: chapter,
-      verse: index + 1,
-      text: texts[index],
-      bookName: bookName,
-    ));
+  static List<BibleVerse> _getMatthew1() {
+    const bookId = 40;
+    const chapter = 1;
+    const texts = [
+      "The book of the generation of Jesus Christ, the son of David, the son of Abraham.",
+      "Abraham begat Isaac; and Isaac begat Jacob; and Jacob begat Judas and his brethren;",
+      "And Jacob begat Joseph the husband of Mary, of whom was born Jesus, who is called Christ.",
+    ];
+    return _createVerses(bookId, chapter, texts, 'Matthew');
+  }
+
+  static List<BibleVerse> _createVerses(int bookId, int chapter, List<String> texts, String bookName, {int startVerse = 1}) {
+    final verses = <BibleVerse>[];
+    for (int i = 0; i < texts.length; i++) {
+      verses.add(BibleVerse(
+        id: bookId * 10000 + chapter * 100 + i + startVerse,
+        bookId: bookId,
+        bookName: bookName,
+        chapter: chapter,
+        verse: i + startVerse,
+        text: texts[i],
+      ));
+    }
+    return verses;
   }
 }

@@ -48,6 +48,23 @@ dependencies:
   # On-device AI (Gemma for mobile, Llamafile for desktop)
   flutter_gemma: ^0.11.16
 
+  # Text-to-Speech (Audio Bible)
+  # flutter_tts: ^4.2.3  # Requires NuGet on Windows - uncomment for Android/iOS
+
+  # Local Notifications (Daily Devotionals)
+  flutter_local_notifications: ^17.0.0
+  timezone: ^0.9.4
+
+  # Home Screen Widgets
+  home_widget: ^0.6.0
+
+  # Sharing
+  share_plus: ^12.0.1
+
+  # PDF Generation
+  pdf: ^3.10.0
+  printing: ^5.12.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -55,3 +72,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/reading_plans/
