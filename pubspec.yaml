@@ -41,6 +41,10 @@ dependencies:
   http: ^1.2.2
   dio: ^5.4.0
 
+  # Speech Recognition (Pastor's Notes)
+  speech_to_text: ^6.6.0
+  permission_handler: ^11.0.0
+
   # On-device AI (Gemma for mobile, Llamafile for desktop)
   flutter_gemma: ^0.11.16
 

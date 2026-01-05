@@ -11,6 +11,7 @@ import '../../data/bible/bible_download_service.dart';
 import '../../data/bible/kjv_importer.dart';
 import '../../data/user/user_data_repository.dart';
 import '../../data/conversation/conversation_repository.dart';
+import '../../data/pastors_notes/pastors_notes_repository.dart';
 import '../ai/ai_provider_manager.dart';
 import '../ai/gemma_ai_service.dart';
 import '../ai/llamafile_service.dart';
@@ -89,6 +90,9 @@ class InitializationNotifier extends StateNotifier<InitStatus> {
 
       // Initialize conversation repository
       await ConversationRepository.instance.initialize();
+
+      // Initialize Pastor's Notes repository
+      await PastorsNotesRepository.instance.initialize();
 
       state = state.copyWith(
         message: 'Initializing AI services...',

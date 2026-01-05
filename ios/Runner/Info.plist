@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Hamorah needs microphone access to transcribe sermons in Pastor's Notes.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Hamorah uses speech recognition to transcribe sermons and detect Scripture references.</string>
 </dict>
 </plist>

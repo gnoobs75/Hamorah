@@ -8,6 +8,9 @@ import '../../features/library/presentation/screens/library_screen.dart';
 import '../../features/settings/presentation/screens/settings_screen.dart';
 import '../../features/onboarding/presentation/screens/onboarding_screen.dart';
 import '../../features/loading/presentation/screens/loading_screen.dart';
+import '../../features/pastors_notes/presentation/screens/sessions_list_screen.dart';
+import '../../features/pastors_notes/presentation/screens/recording_screen.dart';
+import '../../features/pastors_notes/presentation/screens/session_detail_screen.dart';
 import '../widgets/main_scaffold.dart';
 
 /// Route names for type-safe navigation
@@ -19,6 +22,8 @@ class AppRoutes {
   static const String search = '/search';
   static const String library = '/library';
   static const String settings = '/settings';
+  static const String pastorsNotes = '/pastors-notes';
+  static const String pastorsNotesRecord = '/pastors-notes/record';
 }
 
 /// App router configuration using go_router
@@ -81,6 +86,25 @@ class AppRouter {
         GoRoute(
           path: AppRoutes.settings,
           builder: (context, state) => const SettingsScreen(),
+        ),
+
+        // Pastor's Notes feature
+        GoRoute(
+          path: AppRoutes.pastorsNotes,
+          builder: (context, state) => const SessionsListScreen(),
+          routes: [
+            GoRoute(
+              path: 'record',
+              builder: (context, state) => const RecordingScreen(),
+            ),
+            GoRoute(
+              path: ':sessionId',
+              builder: (context, state) {
+                final sessionId = state.pathParameters['sessionId']!;
+                return SessionDetailScreen(sessionId: sessionId);
+              },
+            ),
+          ],
         ),
       ],
     );

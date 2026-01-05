@@ -52,6 +52,9 @@ class _BottomNavBar extends StatelessWidget {
       case 3:
         context.go(AppRoutes.library);
         break;
+      case 4:
+        context.push(AppRoutes.pastorsNotes);
+        break;
     }
   }
 
@@ -60,6 +63,7 @@ class _BottomNavBar extends StatelessWidget {
     return BottomNavigationBar(
       currentIndex: _getCurrentIndex(context),
       onTap: (index) => _onTap(context, index),
+      type: BottomNavigationBarType.fixed,
       items: const [
         BottomNavigationBarItem(
           icon: Icon(Icons.chat_bubble_outline),
@@ -80,6 +84,11 @@ class _BottomNavBar extends StatelessWidget {
           icon: Icon(Icons.bookmark_outline),
           activeIcon: Icon(Icons.bookmark),
           label: 'Library',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.mic_none),
+          activeIcon: Icon(Icons.mic),
+          label: 'Notes',
         ),
       ],
     );
